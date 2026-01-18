@@ -25,3 +25,6 @@ propwise-*.tar
 # Ignore escript binary
 /propwise
 
+# Project-specific configuration
+/.propwise.exs
+

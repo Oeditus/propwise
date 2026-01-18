@@ -1,0 +1,13 @@
+# PropWise Configuration
+#
+# This file allows you to customize PropWise's behavior.
+# Copy this file to .propwise.exs in your project root to use it.
+
+%{
+  # Directories to analyze (relative to project root)
+  # Default: ["lib"]
+  analyze_paths: ["lib"]
+
+  # You can add multiple directories:
+  # analyze_paths: ["lib", "src", "apps/my_app/lib"]
+}

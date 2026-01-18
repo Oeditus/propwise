@@ -83,52 +83,163 @@ defmodule PropWise.Analyzer do
     match?({:case, _, _}, body) or match?({:cond, _, _}, body) or match?({:with, _, _}, body)
   end
 
-  defp generate_suggestions(patterns, _function_info) do
+  defp generate_suggestions(patterns, function_info) do
+    func_name = function_info.name
+    module_name = function_info.module |> String.split(".") |> List.last()
+
     Enum.flat_map(patterns, fn {type, _reason} ->
       case type do
         :collection_operation ->
           [
-            "Test that output length is correct for different input sizes",
-            "Test preservation of elements",
-            "Test order properties if applicable"
+            """
+            property "preserves input size" do
+              check all list <- list_of(term()) do
+                assert length(#{module_name}.#{func_name}(list)) == length(list)
+              end
+            end
+            """,
+            """
+            property "contains all original elements" do
+              check all list <- list_of(term()) do
+                result = #{module_name}.#{func_name}(list)
+                assert Enum.all?(list, &(&1 in result))
+              end
+            end
+            """
           ]
 
         :transformation ->
           [
-            "Test with various input types and edge cases",
-            "Test that transformed data maintains invariants"
+            """
+            property "maintains structural invariants" do
+              check all input <- term() do
+                result = #{module_name}.#{func_name}(input)
+                # Add your invariant checks here
+                assert valid_structure?(result)
+              end
+            end
+            """,
+            """
+            property "handles edge cases" do
+              check all input <- one_of([constant(nil), constant([]), constant(%{}), term()]) do
+                result = #{module_name}.#{func_name}(input)
+                assert is_valid_result?(result)
+              end
+            end
+            """
           ]
 
         :validation ->
           [
-            "Test with both valid and invalid inputs",
-            "Test boundary conditions",
-            "Test that validation is consistent"
+            """
+            property "consistent validation results" do
+              check all input <- term() do
+                result1 = #{module_name}.#{func_name}(input)
+                result2 = #{module_name}.#{func_name}(input)
+                assert result1 == result2
+              end
+            end
+            """,
+            """
+            property "boolean return type" do
+              check all input <- term() do
+                result = #{module_name}.#{func_name}(input)
+                assert is_boolean(result)
+              end
+            end
+            """
           ]
 
         :algebraic ->
           [
-            "Test associativity: (a op b) op c == a op (b op c)",
-            "Test commutativity if applicable: a op b == b op a",
-            "Test identity element if it exists"
+            """
+            property "associativity" do
+              check all a <- term(), b <- term(), c <- term() do
+                assert #{module_name}.#{func_name}(#{module_name}.#{func_name}(a, b), c) ==
+                       #{module_name}.#{func_name}(a, #{module_name}.#{func_name}(b, c))
+              end
+            end
+            """,
+            """
+            property "commutativity" do
+              check all a <- term(), b <- term() do
+                assert #{module_name}.#{func_name}(a, b) == #{module_name}.#{func_name}(b, a)
+              end
+            end
+            """,
+            """
+            property "identity element" do
+              check all a <- term() do
+                identity = identity_value()
+                assert #{module_name}.#{func_name}(a, identity) == a
+              end
+            end
+            """
           ]
 
         :encoder_decoder ->
           [
-            "Test round-trip property",
-            "Test with edge cases and malformed input"
+            """
+            property "encode/decode round-trip" do
+              check all data <- term() do
+                encoded = #{module_name}.encode(data)
+                assert #{module_name}.decode(encoded) == {:ok, data}
+              end
+            end
+            """,
+            """
+            property "decode handles invalid input" do
+              check all invalid <- binary() do
+                case #{module_name}.#{func_name}(invalid) do
+                  {:ok, _} -> true
+                  {:error, _} -> true
+                  _ -> false
+                end
+              end
+            end
+            """
           ]
 
         :parser ->
           [
-            "Test with valid and invalid inputs",
-            "Test round-trip with formatter if available"
+            """
+            property "parse returns expected structure" do
+              check all input <- string(:alphanumeric) do
+                case #{module_name}.#{func_name}(input) do
+                  {:ok, result} -> assert valid_parsed_structure?(result)
+                  {:error, _} -> true
+                end
+              end
+            end
+            """,
+            """
+            property "parse/format round-trip" do
+              check all data <- valid_data_generator() do
+                formatted = #{module_name}.format(data)
+                assert #{module_name}.#{func_name}(formatted) == {:ok, data}
+              end
+            end
+            """
           ]
 
         :numeric ->
           [
-            "Test with boundary values",
-            "Test with negative numbers, zero, and positive numbers"
+            """
+            property "handles numeric boundaries" do
+              check all n <- one_of([integer(), float()]) do
+                result = #{module_name}.#{func_name}(n)
+                assert is_number(result)
+              end
+            end
+            """,
+            """
+            property "handles special numeric values" do
+              check all n <- member_of([0, -1, 1, :math.pi(), -:math.pi()]) do
+                result = #{module_name}.#{func_name}(n)
+                assert is_valid_numeric?(result)
+              end
+            end
+            """
           ]
 
         _ ->

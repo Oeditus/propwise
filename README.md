@@ -43,6 +43,13 @@ Finds function pairs that are inverses of each other:
 - pack/unpack
 - marshal/unmarshal
 
+### Concrete Test Generation
+Generates ready-to-use property-based test code using `stream_data`:
+- Specific test properties tailored to detected patterns
+- Complete `check all` blocks with appropriate generators
+- Assertions matching the function's expected behavior
+- Copy-paste ready test code to get started quickly
+
 ## Installation
 
 ### As a Library
@@ -132,10 +139,29 @@ MyApp.Parser.parse_json/1
     - Parser: Parser function
     - Data Transformation: Pipeline transformation
   Testing suggestions:
-    - Test with valid and invalid inputs
-    - Test round-trip with formatter if available
-    - Test with various input types and edge cases
-    - Test that transformed data maintains invariants
+    - property "parse returns expected structure" do
+  check all input <- string(:alphanumeric) do
+    case Parser.parse_json(input) do
+      {:ok, result} -> assert valid_parsed_structure?(result)
+      {:error, _} -> true
+    end
+  end
+end
+
+    - property "parse/format round-trip" do
+  check all data <- valid_data_generator() do
+    formatted = Parser.format(data)
+    assert Parser.parse_json(formatted) == {:ok, data}
+  end
+end
+
+    - property "maintains structural invariants" do
+  check all input <- term() do
+    result = Parser.parse_json(input)
+    # Add your invariant checks here
+    assert valid_structure?(result)
+  end
+end
 
 MyApp.List.merge_sorted/2
   Score: 7
@@ -145,11 +171,18 @@ MyApp.List.merge_sorted/2
     - Collection Operation: Uses Enum collection operations
     - Algebraic Structure: Potentially algebraic operation
   Testing suggestions:
-    - Test that output length is correct for different input sizes
-    - Test preservation of elements
-    - Test order properties if applicable
-    - Test associativity: (a op b) op c == a op (b op c)
-    - Test commutativity if applicable: a op b == b op a
+    - property "preserves input size" do
+  check all list <- list_of(term()) do
+    assert length(List.merge_sorted(list)) == length(list)
+  end
+end
+
+    - property "associativity" do
+  check all a <- term(), b <- term(), c <- term() do
+    assert List.merge_sorted(List.merge_sorted(a, b), c) ==
+           List.merge_sorted(a, List.merge_sorted(b, c))
+  end
+end
 ```
 
 ## Scoring System
@@ -163,6 +196,30 @@ Functions are scored based on multiple factors:
 - **Visibility**: 1 bonus point for public functions
 
 Default minimum score is 3, but this can be adjusted based on your needs.
+
+## Configuration
+
+You can customize PropWise's behavior by creating a `.propwise.exs` file in your project root.
+
+### Example Configuration
+
+```elixir
+# .propwise.exs
+%{
+  # Directories to analyze (relative to project root)
+  # Default: ["lib"]
+  analyze_paths: ["lib"]
+
+  # You can analyze multiple directories:
+  # analyze_paths: ["lib", "src", "apps/my_app/lib"]
+}
+```
+
+### Configuration Options
+
+- `analyze_paths` - List of directories to analyze relative to project root (default: `["lib"]`)
+
+If no `.propwise.exs` file is present, PropWise will analyze only the `lib` directory by default.
 
 ## Options
 
@@ -179,13 +236,14 @@ Default minimum score is 3, but this can be adjusted based on your needs.
 
 ## How It Works
 
-1. **Parse**: Recursively finds all `.ex` files in the project (excluding `_build`, `deps`, `.elixir_ls`)
+1. **Parse**: Recursively finds all `.ex` files in configured directories (default: `lib`)
 2. **Extract**: Parses each file's AST and extracts function definitions
 3. **Analyze Purity**: Walks the AST to detect side effects
 4. **Detect Patterns**: Looks for common patterns in function structure and naming
 5. **Score**: Calculates a testability score for each function
 6. **Find Pairs**: Identifies inverse function pairs across the codebase
-7. **Report**: Presents findings with actionable suggestions
+7. **Generate Suggestions**: Creates concrete property-based test examples using `stream_data`
+8. **Report**: Presents findings with ready-to-use test code
 
 ## Limitations
 

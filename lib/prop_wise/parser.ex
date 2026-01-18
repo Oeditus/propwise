@@ -3,6 +3,8 @@ defmodule PropWise.Parser do
   Parses Elixir source files and extracts function definitions with their ASTs.
   """
 
+  alias PropWise.Config
+
   @doc """
   Parses all `.ex` files in the given directory recursively.
   Returns a list of function metadata.
@@ -26,9 +28,19 @@ defmodule PropWise.Parser do
   end
 
   defp find_elixir_files(path) do
-    Path.join(path, "**/*.ex")
-    |> Path.wildcard()
-    |> Enum.reject(&String.contains?(&1, ["/_build/", "/deps/", "/.elixir_ls/"]))
+    analyze_paths = Config.analyze_paths(path)
+
+    analyze_paths
+    |> Enum.flat_map(fn relative_path ->
+      full_path = Path.join(path, relative_path)
+
+      if File.dir?(full_path) do
+        Path.join(full_path, "**/*.ex")
+        |> Path.wildcard()
+      else
+        []
+      end
+    end)
   end
 
   defp extract_functions(ast, file_path) do
