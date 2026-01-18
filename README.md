@@ -66,6 +66,8 @@ end
 
 ### As a Command-Line Tool
 
+#### Option 1: escript
+
 ```bash
 cd propwise
 mix deps.get
@@ -74,9 +76,19 @@ mix escript.build
 
 This creates an executable `propwise` in the project directory.
 
+#### Option 2: Mix Task
+
+When added as a dependency, PropWise provides a Mix task:
+
+```bash
+mix propwise
+```
+
 ## Usage
 
 ### Command Line
+
+#### Using escript
 
 ```bash
 # Analyze current project
@@ -90,6 +102,25 @@ This creates an executable `propwise` in the project directory.
 
 # Show help
 ./propwise --help
+```
+
+#### Using Mix task
+
+```bash
+# Analyze current project
+mix propwise
+
+# Analyze with custom minimum score
+mix propwise --min-score 5
+
+# Output as JSON
+mix propwise --format json
+
+# Analyze another project
+mix propwise ../other_project
+
+# Show help
+mix propwise --help
 ```
 
 ### As a Library

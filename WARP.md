@@ -48,7 +48,12 @@ mix format --check-formatted
 
 ### Running the Tool
 ```bash
-# After building the escript
+# Using Mix task (recommended during development)
+mix propwise
+mix propwise --min-score 5
+mix propwise --format json
+
+# Or using escript (after building)
 ./propwise .
 ./propwise --min-score 5 ./path/to/project
 ./propwise --format json ./path/to/project
@@ -58,7 +63,7 @@ mix format --check-formatted
 
 ### Core Components
 
-The codebase follows a pipeline architecture with 6 main modules:
+The codebase follows a pipeline architecture with 8 main modules:
 
 1. **PropWise.Config** (`lib/prop_wise/config.ex`)
    - Loads configuration from `.propwise.exs` file
@@ -117,6 +122,11 @@ The codebase follows a pipeline architecture with 6 main modules:
    - Command-line interface for escript
    - Parses CLI arguments (min-score, format, help)
    - Entry point: `main/1` function
+
+8. **Mix.Tasks.Propwise** (`lib/mix/tasks/propwise.ex`)
+   - Mix task interface (`mix propwise`)
+   - Same functionality as CLI but integrated with Mix
+   - Entry point: `run/1` function
 
 ### Data Flow
 
