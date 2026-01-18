@@ -24,7 +24,7 @@ defmodule PropWise.PurityAnalyzerTest do
       }
 
       assert {:impure, side_effects} = PurityAnalyzer.analyze(function_info)
-      assert match?([{:module_call, "IO", :puts}], side_effects)
+      assert match?([{:module_call, IO, :puts, 1}], side_effects)
     end
 
     test "detects File side effects" do
@@ -36,7 +36,7 @@ defmodule PropWise.PurityAnalyzerTest do
       }
 
       assert {:impure, side_effects} = PurityAnalyzer.analyze(function_info)
-      assert match?([{:module_call, "File", :read!}], side_effects)
+      assert match?([{:module_call, File, :read!, 1}], side_effects)
     end
 
     test "detects GenServer side effects" do
@@ -48,7 +48,7 @@ defmodule PropWise.PurityAnalyzerTest do
       }
 
       assert {:impure, side_effects} = PurityAnalyzer.analyze(function_info)
-      assert match?([{:module_call, "GenServer", :call}], side_effects)
+      assert match?([{:module_call, GenServer, :call, 2}], side_effects)
     end
   end
 
