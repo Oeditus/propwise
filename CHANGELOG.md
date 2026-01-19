@@ -30,5 +30,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration file support (`.propwise.exs`)
 - Comprehensive documentation and scoring guide
 
-[Unreleased]: https://github.com/am-kantox/propwise/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/am-kantox/propwise/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Oeditus/propwise/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Oeditus/propwise/releases/tag/v0.1.0

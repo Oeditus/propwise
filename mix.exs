@@ -2,7 +2,7 @@ defmodule PropWise.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/am-kantox/propwise"
+  @source_url "https://github.com/Oeditus/propwise"
 
   def project do
     [
