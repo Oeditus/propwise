@@ -37,6 +37,7 @@ defmodule PropWise.PatternDetector do
         f1 <- functions,
         f2 <- functions,
         f1.module == f2.module,
+        f1.name != f2.name,
         name_matches?(f1.name, forward) and name_matches?(f2.name, inverse) do
       %{
         type: :inverse_pair,
