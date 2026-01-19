@@ -48,7 +48,9 @@ defmodule PropWise.Reporter do
       end
     end
 
-    if not Enum.empty?(candidates) do
+    if Enum.empty?(candidates) do
+      IO.puts("\nNo strong candidates found. Consider lowering the min_score threshold.")
+    else
       IO.puts("\n" <> String.duplicate("-", 80))
       IO.puts("Top Candidates (sorted by score):")
       IO.puts(String.duplicate("-", 80))
@@ -56,8 +58,6 @@ defmodule PropWise.Reporter do
       candidates
       |> Enum.take(20)
       |> Enum.each(&print_candidate/1)
-    else
-      IO.puts("\nNo strong candidates found. Consider lowering the min_score threshold.")
     end
 
     IO.puts("\n" <> String.duplicate("=", 80))

@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Release Artifacts
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: '1.19'
+          otp-version: '28'
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Build escript
+        run: MIX_ENV=prod mix escript.build
+
+      - name: Get version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          else
+            echo "version=$(grep '@version' mix.exs | sed 's/.*\"\(.*\)\".*/\1/')" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create checksums
+        run: |
+          sha256sum propwise > propwise.sha256
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            propwise
+            propwise.sha256
+          body: |
+            ## PropWise Release ${{ steps.version.outputs.version }}
+            
+            PropWise is an AST-based analyzer for identifying property-based testing candidates in Elixir codebases.
+            
+            ### Installation
+            
+            **Escript (standalone executable):**
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/propwise -o propwise
+            chmod +x propwise
+            sudo mv propwise /usr/local/bin/
+            ```
+            
+            **From Hex.pm:**
+            ```elixir
+            # In your mix.exs
+            def deps do
+              [
+                {:propwise, "~> ${{ steps.version.outputs.version }}"}
+              ]
+            end
+            ```
+            
+            Or install as a Mix task:
+            ```bash
+            mix archive.install hex propwise
+            ```
+            
+            ### Usage
+            
+            **Command line:**
+            ```bash
+            # Using escript
+            propwise .
+            propwise --min-score 5 ./my_project
+            propwise --format json ./my_project
+            
+            # Using Mix task
+            mix propwise
+            mix propwise --min-score 5
+            ```
+            
+            **As a library:**
+            ```elixir
+            result = PropWise.analyze("./my_project")
+            PropWise.print_report(result)
+            ```
+            
+            ### Checksums
+            
+            Verify your download:
+            ```bash
+            sha256sum -c propwise.sha256
+            ```
+            
+            ### What's New
+            
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/CHANGELOG.md) for detailed changes.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to Hex.pm
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: |
+          mix hex.publish --yes || echo "Hex publish skipped (may need HEX_API_KEY secret)"

@@ -30,25 +30,23 @@ defmodule PropWise.Config do
   end
 
   defp load_config_file(config_file) do
-    try do
-      {config, _bindings} = Code.eval_file(config_file)
+    {config, _bindings} = Code.eval_file(config_file)
 
-      # Validate that it's a map or keyword list
-      case config do
-        config when is_map(config) ->
-          config
+    # Validate that it's a map or keyword list
+    case config do
+      config when is_map(config) ->
+        config
 
-        config when is_list(config) ->
-          Map.new(config)
+      config when is_list(config) ->
+        Map.new(config)
 
-        _ ->
-          IO.warn("Invalid configuration in #{config_file}, using defaults")
-          @default_config
-      end
-    rescue
-      e ->
-        IO.warn("Error loading #{config_file}: #{inspect(e)}, using defaults")
+      _ ->
+        IO.warn("Invalid configuration in #{config_file}, using defaults")
         @default_config
     end
+  rescue
+    e ->
+      IO.warn("Error loading #{config_file}: #{inspect(e)}, using defaults")
+      @default_config
   end
 end

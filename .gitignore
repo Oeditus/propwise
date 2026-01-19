@@ -25,6 +25,14 @@ propwise-*.tar
 # Ignore escript binary
 /propwise
 
+/.elixir-tools/
+/.elixir_ls/
+/.erl.history/
+
+# Dialyzer PLT files
+/priv/plts/
+
 # Project-specific configuration
 /.propwise.exs
+
 

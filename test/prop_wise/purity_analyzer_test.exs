@@ -68,7 +68,7 @@ defmodule PropWise.PurityAnalyzerTest do
       function_info = %{
         body:
           quote do
-            IO.inspect(value)
+            Logger.info(value)
           end
       }
 

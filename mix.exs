@@ -15,9 +15,24 @@ defmodule PropWise.MixProject do
       description: description(),
       package: package(),
       docs: docs(),
+      aliases: aliases(),
+      dialyzer: dialyzer(),
+      test_coverage: [tool: ExCoveralls],
       name: "PropWise",
       source_url: @source_url,
       homepage_url: @source_url
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.post": :test,
+        "coveralls.html": :test,
+        "coveralls.json": :test
+      ]
     ]
   end
 
@@ -32,12 +47,33 @@ defmodule PropWise.MixProject do
   defp deps do
     [
       {:jason, "~> 1.4"},
-      {:ex_doc, "~> 0.34", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.18", only: :test, runtime: false}
     ]
   end
 
   defp escript do
     [main_module: PropWise.CLI]
+  end
+
+  defp aliases do
+    [
+      quality: ["format", "credo --strict", "dialyzer"],
+      "quality.ci": [
+        "format --check-formatted",
+        "credo --strict",
+        "dialyzer"
+      ]
+    ]
+  end
+
+  defp dialyzer do
+    [
+      plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
+      plt_add_apps: [:mix]
+    ]
   end
 
   defp description do

@@ -3,7 +3,7 @@ defmodule PropWise.Analyzer do
   Main analyzer that combines purity analysis and pattern detection to score functions.
   """
 
-  alias PropWise.{Parser, PurityAnalyzer, PatternDetector}
+  alias PropWise.{Parser, PatternDetector, PurityAnalyzer}
 
   @doc """
   Analyzes all functions in a project and returns candidates for property-based testing.

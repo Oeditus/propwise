@@ -97,7 +97,7 @@ defmodule PropWise.Parser do
   end
 
   defp extract_module_name({:__aliases__, _meta, parts}) do
-    parts |> Enum.map(&to_string/1) |> Enum.join(".")
+    Enum.map_join(parts, ".", &to_string/1)
   end
 
   defp extract_module_name(atom) when is_atom(atom), do: to_string(atom)
