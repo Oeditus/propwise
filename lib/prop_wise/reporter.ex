@@ -93,6 +93,9 @@ defmodule PropWise.Reporter do
       |> Map.update!(:candidates, fn candidates ->
         Enum.map(candidates, &serialize_candidate/1)
       end)
+      |> Map.update!(:inverse_pairs, fn pairs ->
+        Enum.map(pairs, &serialize_inverse_pair/1)
+      end)
       |> Jason.encode!(pretty: true)
 
     IO.puts(json)
@@ -110,6 +113,25 @@ defmodule PropWise.Reporter do
       patterns:
         Enum.map(candidate.patterns, fn {type, reason} -> %{type: type, reason: reason} end),
       suggestions: candidate.suggestions
+    }
+  end
+
+  defp serialize_inverse_pair(pair) do
+    {mod1, name1, arity1} = pair.forward
+    {mod2, name2, arity2} = pair.inverse
+
+    %{
+      forward: %{
+        module: mod1,
+        name: to_string(name1),
+        arity: arity1
+      },
+      inverse: %{
+        module: mod2,
+        name: to_string(name2),
+        arity: arity2
+      },
+      suggestion: pair.suggestion
     }
   end
 

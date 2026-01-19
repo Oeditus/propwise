@@ -66,19 +66,42 @@ end
 
 ### As a Command-Line Tool
 
-#### Option 1: escript
+#### Option 1: escript (Recommended for standalone use)
+
+Build and install the standalone executable:
 
 ```bash
 cd propwise
 mix deps.get
 mix escript.build
+
+# Copy to a directory in your PATH
+sudo cp propwise /usr/local/bin/
+# Or just use it directly
+./propwise
 ```
 
-This creates an executable `propwise` in the project directory.
+The escript bundles all dependencies and works without Mix or any additional setup.
 
-#### Option 2: Mix Task
+#### Option 2: Mix archive
 
-When added as a dependency, PropWise provides a Mix task:
+Install globally from Hex as a Mix archive:
+
+```bash
+mix archive.install hex propwise
+```
+
+This makes the `mix propwise` task available in any project. Note: This requires `jason` to be available in your Mix environment.
+
+To uninstall:
+
+```bash
+mix archive.uninstall propwise
+```
+
+#### Option 3: As a dependency
+
+When added as a project dependency, PropWise provides a Mix task:
 
 ```bash
 mix propwise

@@ -20,24 +20,27 @@ defmodule PropWise.CLI do
         ]
       )
 
-    if opts[:help] || Enum.empty?(paths) do
+    if opts[:help] do
       print_help()
     else
-      path = List.first(paths)
+      path = List.first(paths) || "."
       run_analysis(path, opts)
     end
   end
 
   defp run_analysis(path, opts) do
     unless File.dir?(path) do
-      IO.puts("Error: #{path} is not a valid directory")
+      IO.puts(:stderr, "Error: #{path} is not a valid directory")
       System.halt(1)
     end
 
     min_score = Keyword.get(opts, :min_score, 3)
     format = Keyword.get(opts, :format, "text") |> String.to_atom()
 
-    IO.puts("Analyzing #{path}...")
+    # Only print status message for text format to avoid polluting JSON output
+    if format == :text do
+      IO.puts("Analyzing #{path}...")
+    end
 
     result = Analyzer.analyze_project(path, min_score: min_score)
 
@@ -49,10 +52,10 @@ defmodule PropWise.CLI do
     PropWise - Property-Based Testing Candidate Detector
 
     Usage:
-      propwise [OPTIONS] <path>
+      propwise [OPTIONS] [PATH]
 
     Arguments:
-      <path>                  Path to the Elixir project to analyze
+      [PATH]                  Path to the Elixir project to analyze (default: .)
 
     Options:
       -m, --min-score NUM     Minimum score for candidates (default: 3)
@@ -60,9 +63,10 @@ defmodule PropWise.CLI do
       -h, --help              Show this help message
 
     Examples:
+      propwise
+      propwise --min-score 5
+      propwise --format json
       propwise ./my_project
-      propwise --min-score 5 ./my_project
-      propwise --format json ./my_project
 
     The tool analyzes your Elixir codebase to find functions that are good
     candidates for property-based testing. It looks for:

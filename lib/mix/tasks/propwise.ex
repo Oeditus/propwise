@@ -63,7 +63,10 @@ defmodule Mix.Tasks.Propwise do
     min_score = Keyword.get(opts, :min_score, 3)
     format = Keyword.get(opts, :format, "text") |> String.to_atom()
 
-    Mix.shell().info("Analyzing #{path}...")
+    # Only print status message for text format to avoid polluting JSON output
+    if format == :text do
+      Mix.shell().info("Analyzing #{path}...")
+    end
 
     result = Analyzer.analyze_project(path, min_score: min_score)
 

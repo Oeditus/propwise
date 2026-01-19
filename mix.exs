@@ -39,13 +39,14 @@ defmodule PropWise.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger]
+      extra_applications: [:logger, :jason]
     ]
   end
 
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      # Runtime dependency needed for JSON output
       {:jason, "~> 1.4"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
@@ -93,7 +94,9 @@ defmodule PropWise.MixProject do
         "GitHub" => @source_url,
         "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md"
       },
-      maintainers: ["Aleksei Matiushkin"]
+      maintainers: ["Aleksei Matiushkin"],
+      # Enable installation as a Mix archive
+      files_to_archive: ~w(lib mix.exs README.md LICENSE)
     ]
   end
 
