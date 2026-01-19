@@ -14,6 +14,7 @@ defmodule Mix.Tasks.Propwise do
 
     * `-m, --min-score NUM` - Minimum score for candidates (default: 3)
     * `-f, --format FORMAT` - Output format: text or json (default: text)
+    * `-l, --library LIB` - Property testing library: stream_data or proper (default: stream_data)
     * `-h, --help` - Show help message
 
   ## Examples
@@ -21,6 +22,7 @@ defmodule Mix.Tasks.Propwise do
       mix propwise
       mix propwise --min-score 5
       mix propwise --format json
+      mix propwise --library proper
       mix propwise ../other_project
   """
 
@@ -37,11 +39,13 @@ defmodule Mix.Tasks.Propwise do
         strict: [
           min_score: :integer,
           format: :string,
+          library: :string,
           help: :boolean
         ],
         aliases: [
           m: :min_score,
           f: :format,
+          l: :library,
           h: :help
         ]
       )
@@ -62,15 +66,38 @@ defmodule Mix.Tasks.Propwise do
 
     min_score = Keyword.get(opts, :min_score, 3)
     format = Keyword.get(opts, :format, "text") |> String.to_atom()
+    library = parse_library(opts)
 
     # Only print status message for text format to avoid polluting JSON output
     if format == :text do
       Mix.shell().info("Analyzing #{path}...")
     end
 
-    result = Analyzer.analyze_project(path, min_score: min_score)
+    analyzer_opts = [min_score: min_score]
+
+    analyzer_opts =
+      if library, do: Keyword.put(analyzer_opts, :library, library), else: analyzer_opts
+
+    result = Analyzer.analyze_project(path, analyzer_opts)
 
     Reporter.print_report(result, format: format)
+  end
+
+  defp parse_library(opts) do
+    case Keyword.get(opts, :library) do
+      nil ->
+        nil
+
+      "stream_data" ->
+        :stream_data
+
+      "proper" ->
+        :proper
+
+      other ->
+        Mix.shell().error("Warning: Unknown library '#{other}', using default")
+        nil
+    end
   end
 
   defp print_help do
@@ -86,12 +113,14 @@ defmodule Mix.Tasks.Propwise do
     Options:
       -m, --min-score NUM     Minimum score for candidates (default: 3)
       -f, --format FORMAT     Output format: text or json (default: text)
+      -l, --library LIB       Property testing library: stream_data or proper (default: stream_data)
       -h, --help              Show this help message
 
     Examples:
       mix propwise
       mix propwise --min-score 5
       mix propwise --format json
+      mix propwise --library proper
       mix propwise ../other_project
 
     The task analyzes your Elixir codebase to find functions that are good

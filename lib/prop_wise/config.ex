@@ -4,7 +4,8 @@ defmodule PropWise.Config do
   """
 
   @default_config %{
-    analyze_paths: ["lib"]
+    analyze_paths: ["lib"],
+    library: :stream_data
   }
 
   @doc """
@@ -28,6 +29,22 @@ defmodule PropWise.Config do
     config = load(project_path)
     Map.get(config, :analyze_paths, @default_config.analyze_paths)
   end
+
+  @doc """
+  Returns the property-based testing library to use for suggestions.
+  Supported values: :stream_data, :proper
+  """
+  def library(project_path) do
+    config = load(project_path)
+    lib = Map.get(config, :library, @default_config.library)
+    normalize_library(lib)
+  end
+
+  defp normalize_library(:stream_data), do: :stream_data
+  defp normalize_library(:proper), do: :proper
+  defp normalize_library("stream_data"), do: :stream_data
+  defp normalize_library("proper"), do: :proper
+  defp normalize_library(_), do: @default_config.library
 
   defp load_config_file(config_file) do
     {config, _bindings} = Code.eval_file(config_file)

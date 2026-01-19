@@ -44,9 +44,10 @@ Finds function pairs that are inverses of each other:
 - marshal/unmarshal
 
 ### Concrete Test Generation
-Generates ready-to-use property-based test code using `stream_data`:
+Generates ready-to-use property-based test code:
+- Supports multiple libraries: `stream_data` (default) and `PropEr`
 - Specific test properties tailored to detected patterns
-- Complete `check all` blocks with appropriate generators
+- Complete test blocks with appropriate generators
 - Assertions matching the function's expected behavior
 - Copy-paste ready test code to get started quickly
 
@@ -123,6 +124,9 @@ mix propwise
 # Output as JSON
 ./propwise --format json ./my_project
 
+# Use PropEr instead of stream_data
+./propwise --library proper ./my_project
+
 # Show help
 ./propwise --help
 ```
@@ -139,6 +143,9 @@ mix propwise --min-score 5
 # Output as JSON
 mix propwise --format json
 
+# Use PropEr instead of stream_data
+mix propwise --library proper
+
 # Analyze another project
 mix propwise ../other_project
 
@@ -153,7 +160,7 @@ mix propwise --help
 result = PropWise.analyze("./my_project")
 
 # Analyze with custom options
-result = PropWise.analyze("./my_project", min_score: 5)
+result = PropWise.analyze("./my_project", min_score: 5, library: :proper)
 
 # Print the report
 PropWise.print_report(result)
@@ -264,7 +271,11 @@ You can customize PropWise's behavior by creating a `.propwise.exs` file in your
 %{
   # Directories to analyze (relative to project root)
   # Default: ["lib"]
-  analyze_paths: ["lib"]
+  analyze_paths: ["lib"],
+
+  # Property-based testing library to use for suggestions
+  # Options: :stream_data (default) or :proper
+  library: :stream_data
 
   # You can analyze multiple directories:
   # analyze_paths: ["lib", "src", "apps/my_app/lib"]
@@ -274,8 +285,9 @@ You can customize PropWise's behavior by creating a `.propwise.exs` file in your
 ### Configuration Options
 
 - `analyze_paths` - List of directories to analyze relative to project root (default: `["lib"]`)
+- `library` - Property testing library for code generation: `:stream_data` or `:proper` (default: `:stream_data`)
 
-If no `.propwise.exs` file is present, PropWise will analyze only the `lib` directory by default.
+If no `.propwise.exs` file is present, PropWise will use the defaults.
 
 ## Options
 
@@ -283,12 +295,16 @@ If no `.propwise.exs` file is present, PropWise will analyze only the `lib` dire
 
 - `-m, --min-score NUM`: Minimum score for candidates (default: 3)
 - `-f, --format FORMAT`: Output format: text or json (default: text)
+- `-l, --library LIB`: Property testing library: stream_data or proper (default: stream_data)
 - `-h, --help`: Show help message
+
+Note: CLI options override configuration file settings.
 
 ### Library Options
 
 - `:min_score` - Minimum score threshold (integer, default: 3)
 - `:format` - Output format (`:text` or `:json`, default: `:text`)
+- `:library` - Property testing library (`:stream_data` or `:proper`, default: `:stream_data`)
 
 ## How It Works
 
@@ -298,7 +314,7 @@ If no `.propwise.exs` file is present, PropWise will analyze only the `lib` dire
 4. **Detect Patterns**: Looks for common patterns in function structure and naming
 5. **Score**: Calculates a testability score for each function
 6. **Find Pairs**: Identifies inverse function pairs across the codebase
-7. **Generate Suggestions**: Creates concrete property-based test examples using `stream_data`
+7. **Generate Suggestions**: Creates concrete property-based test examples using your chosen library
 8. **Report**: Presents findings with ready-to-use test code
 
 ## Limitations

@@ -63,7 +63,7 @@ mix propwise --format json
 
 ### Core Components
 
-The codebase follows a pipeline architecture with 8 main modules:
+The codebase follows a pipeline architecture with 9 main modules:
 
 1. **PropWise.Config** (`lib/prop_wise/config.ex`)
    - Loads configuration from `.propwise.exs` file
@@ -113,17 +113,25 @@ The codebase follows a pipeline architecture with 8 main modules:
    - Filters by minimum score (default: 3)
    - Returns sorted list of candidates
 
-6. **PropWise.Reporter** (`lib/prop_wise/reporter.ex`)
+6. **PropWise.SuggestionGenerator** (`lib/prop_wise/suggestion_generator.ex`)
+   - Generates library-specific property test suggestions
+   - Supports multiple libraries:
+     - `stream_data`: Uses `check all` syntax with generators like `list_of`, `one_of`
+     - `PropEr`: Uses `forall` syntax with generators like `list`, `oneof`
+   - Provides pattern-specific test templates (collection ops, transformations, validations, etc.)
+   - Main function: `generate/3` takes patterns, function info, and library
+
+7. **PropWise.Reporter** (`lib/prop_wise/reporter.ex`)
    - Formats analysis results for output
    - Supports text and JSON formats
    - Displays candidates sorted by score with suggestions
 
-7. **PropWise.CLI** (`lib/prop_wise/cli.ex`)
+8. **PropWise.CLI** (`lib/prop_wise/cli.ex`)
    - Command-line interface for escript
-   - Parses CLI arguments (min-score, format, help)
+   - Parses CLI arguments (min-score, format, library, help)
    - Entry point: `main/1` function
 
-8. **Mix.Tasks.Propwise** (`lib/mix/tasks/propwise.ex`)
+9. **Mix.Tasks.Propwise** (`lib/mix/tasks/propwise.ex`)
    - Mix task interface (`mix propwise`)
    - Same functionality as CLI but integrated with Mix
    - Entry point: `run/1` function
@@ -183,7 +191,8 @@ PropWise supports configuration via a `.propwise.exs` file in the project root:
 
 ```elixir
 %{
-  analyze_paths: ["lib"]  # Directories to analyze (default: ["lib"])
+  analyze_paths: ["lib"],  # Directories to analyze (default: ["lib"])
+  library: :stream_data    # Property testing library: :stream_data or :proper (default: :stream_data)
 }
 ```
 
