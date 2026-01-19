@@ -228,7 +228,7 @@ Functions are scored based on multiple factors:
 
 Default minimum score is 3, but this can be adjusted based on your needs.
 
-**For detailed information about all detection criteria and scoring rules, see [SCORING.md](SCORING.md).**
+**For detailed information about all detection criteria and scoring rules, see [Scoring](stuff/docs/SCORING.md).**
 
 ## Configuration
 

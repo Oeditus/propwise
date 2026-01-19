@@ -1,17 +1,23 @@
 defmodule PropWise.MixProject do
   use Mix.Project
 
+  @version "0.1.0"
+  @source_url "https://github.com/am-kantox/propwise"
+
   def project do
     [
       app: :propwise,
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       escript: escript(),
-      description:
-        "AST-based analyzer for identifying property-based testing candidates in Elixir codebases",
-      package: package()
+      description: description(),
+      package: package(),
+      docs: docs(),
+      name: "PropWise",
+      source_url: @source_url,
+      homepage_url: @source_url
     ]
   end
 
@@ -25,7 +31,8 @@ defmodule PropWise.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]
   end
 
@@ -33,10 +40,66 @@ defmodule PropWise.MixProject do
     [main_module: PropWise.CLI]
   end
 
+  defp description do
+    """
+    AST-based analyzer for identifying property-based testing candidates in Elixir codebases.
+    Detects pure functions, identifies testable patterns, finds inverse function pairs,
+    and generates concrete property-based test suggestions.
+    """
+  end
+
   defp package do
     [
+      name: "propwise",
+      files: ~w(lib mix.exs README.md LICENSE CHANGELOG.md stuff/docs/SCORING.md),
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/am-kantox/propwise"}
+      links: %{
+        "GitHub" => @source_url,
+        "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md"
+      },
+      maintainers: ["Aleksei Matiushkin"]
+    ]
+  end
+
+  defp docs do
+    [
+      main: "readme",
+      source_ref: "v#{@version}",
+      source_url: @source_url,
+      logo: "stuff/img/logo-48x48.png",
+      extras: [
+        "README.md",
+        "CHANGELOG.md",
+        "stuff/docs/SCORING.md",
+        "LICENSE"
+      ],
+      groups_for_extras: [
+        Guides: ~r/stuff\/docs\/.?/
+      ],
+      formatters: ["html"],
+      authors: ["Aleksei Matiushkin"],
+      api_reference: false,
+      groups_for_modules: [
+        Core: [
+          PropWise,
+          PropWise.Analyzer
+        ],
+        "AST Analysis": [
+          PropWise.Parser,
+          PropWise.PurityAnalyzer,
+          PropWise.PatternDetector
+        ],
+        Output: [
+          PropWise.Reporter
+        ],
+        "Command Line": [
+          PropWise.CLI,
+          Mix.Tasks.Propwise
+        ],
+        Configuration: [
+          PropWise.Config
+        ]
+      ]
     ]
   end
 end
