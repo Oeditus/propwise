@@ -20,7 +20,8 @@ defmodule PropWise.Reporter do
          candidates: candidates,
          inverse_pairs: inverse_pairs,
          total_functions: total,
-         candidates_count: count
+         candidates_count: count,
+         dropped_count: dropped
        }) do
     IO.puts("\n" <> String.duplicate("=", 80))
     IO.puts("PropWise Analysis Report")
@@ -29,6 +30,7 @@ defmodule PropWise.Reporter do
     IO.puts("\nSummary:")
     IO.puts("  Total functions analyzed: #{total}")
     IO.puts("  Property test candidates: #{count}")
+    IO.puts("  Candidates dropped (below threshold): #{dropped}")
 
     if count > 0 do
       percentage = Float.round(count / total * 100, 1)

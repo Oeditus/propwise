@@ -64,7 +64,7 @@ defmodule Mix.Tasks.Propwise do
       exit({:shutdown, 1})
     end
 
-    min_score = Keyword.get(opts, :min_score, 3)
+    min_score = Keyword.get(opts, :min_score, 4)
     format = Keyword.get(opts, :format, "text") |> String.to_atom()
     library = parse_library(opts)
 
@@ -81,6 +81,11 @@ defmodule Mix.Tasks.Propwise do
     result = Analyzer.analyze_project(path, analyzer_opts)
 
     Reporter.print_report(result, format: format)
+
+    # Exit with non-zero status if suggestions were found
+    if result.candidates_count > 0 do
+      exit({:shutdown, 1})
+    end
   end
 
   defp parse_library(opts) do
@@ -111,7 +116,7 @@ defmodule Mix.Tasks.Propwise do
       [PATH]                  Path to the Elixir project to analyze (default: .)
 
     Options:
-      -m, --min-score NUM     Minimum score for candidates (default: 3)
+      -m, --min-score NUM     Minimum score for candidates (default: 4)
       -f, --format FORMAT     Output format: text or json (default: text)
       -l, --library LIB       Property testing library: stream_data or proper (default: stream_data)
       -h, --help              Show this help message
@@ -134,6 +139,10 @@ defmodule Mix.Tasks.Propwise do
 
     Each candidate is scored based on multiple factors and includes
     suggestions for what properties to test.
+
+    Exit codes:
+      0 - No suggestions found
+      1 - Suggestions found or error occurred
     """)
   end
 end

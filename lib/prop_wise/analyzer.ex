@@ -9,16 +9,23 @@ defmodule PropWise.Analyzer do
   Analyzes all functions in a project and returns candidates for property-based testing.
   """
   def analyze_project(path, opts \\ []) do
-    min_score = Keyword.get(opts, :min_score, 3)
+    min_score = Keyword.get(opts, :min_score, 4)
     library = Keyword.get(opts, :library) || Config.library(path)
 
     functions = Parser.parse_project(path)
 
-    candidates =
+    all_scored_candidates =
       functions
       |> Enum.map(&analyze_function(&1, library))
+
+    candidates =
+      all_scored_candidates
       |> Enum.filter(fn result -> result.score >= min_score end)
       |> Enum.sort_by(& &1.score, :desc)
+
+    dropped_count =
+      all_scored_candidates
+      |> Enum.count(fn result -> result.score > 0 and result.score < min_score end)
 
     inverse_pairs = PatternDetector.find_inverse_pairs(functions)
 
@@ -26,7 +33,8 @@ defmodule PropWise.Analyzer do
       candidates: candidates,
       inverse_pairs: inverse_pairs,
       total_functions: length(functions),
-      candidates_count: length(candidates)
+      candidates_count: length(candidates),
+      dropped_count: dropped_count
     }
   end
 
