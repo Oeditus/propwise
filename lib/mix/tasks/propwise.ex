@@ -15,6 +15,7 @@ defmodule Mix.Tasks.Propwise do
     * `-m, --min-score NUM` - Minimum score for candidates (default: 3)
     * `-f, --format FORMAT` - Output format: text or json (default: text)
     * `-l, --library LIB` - Property testing library: stream_data or proper (default: stream_data)
+    * `--no-fail` - Exit with code 0 even when suggestions are found (default: false)
     * `-h, --help` - Show help message
 
   ## Examples
@@ -40,6 +41,7 @@ defmodule Mix.Tasks.Propwise do
           min_score: :integer,
           format: :string,
           library: :string,
+          no_fail: :boolean,
           help: :boolean
         ],
         aliases: [
@@ -82,8 +84,10 @@ defmodule Mix.Tasks.Propwise do
 
     Reporter.print_report(result, format: format)
 
-    # Exit with non-zero status if suggestions were found
-    if result.candidates_count > 0 do
+    # Exit with non-zero status if suggestions were found (unless --no-fail)
+    no_fail = Keyword.get(opts, :no_fail, false)
+
+    if result.candidates_count > 0 and not no_fail do
       exit({:shutdown, 1})
     end
   end
@@ -119,6 +123,7 @@ defmodule Mix.Tasks.Propwise do
       -m, --min-score NUM     Minimum score for candidates (default: 4)
       -f, --format FORMAT     Output format: text or json (default: text)
       -l, --library LIB       Property testing library: stream_data or proper (default: stream_data)
+      --no-fail               Exit with code 0 even when suggestions are found
       -h, --help              Show this help message
 
     Examples:
