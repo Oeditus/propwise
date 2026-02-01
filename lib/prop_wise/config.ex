@@ -58,12 +58,12 @@ defmodule PropWise.Config do
         Map.new(config)
 
       _ ->
-        IO.warn("Invalid configuration in #{config_file}, using defaults")
+        # Silently fall back to defaults to avoid polluting output
         @default_config
     end
   rescue
-    e ->
-      IO.warn("Error loading #{config_file}: #{inspect(e)}, using defaults")
+    _e ->
+      # Silently fall back to defaults to avoid polluting output
       @default_config
   end
 end

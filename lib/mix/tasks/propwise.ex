@@ -61,14 +61,15 @@ defmodule Mix.Tasks.Propwise do
   end
 
   defp run_analysis(path, opts) do
+    format = Keyword.get(opts, :format, "text") |> String.to_atom()
+
     unless File.dir?(path) do
       Mix.shell().error("Error: #{path} is not a valid directory")
       exit({:shutdown, 1})
     end
 
     min_score = Keyword.get(opts, :min_score, 4)
-    format = Keyword.get(opts, :format, "text") |> String.to_atom()
-    library = parse_library(opts)
+    library = parse_library(opts, format)
 
     # Only print status message for text format to avoid polluting JSON output
     if format == :text do
@@ -84,15 +85,16 @@ defmodule Mix.Tasks.Propwise do
 
     Reporter.print_report(result, format: format)
 
-    # Exit with non-zero status if suggestions were found (unless --no-fail)
+    # For JSON format, exit with 0 on success (candidates found means success)
+    # For text format, exit with non-zero if suggestions found (unless --no-fail)
     no_fail = Keyword.get(opts, :no_fail, false)
 
-    if result.candidates_count > 0 and not no_fail do
+    if format != :json and result.candidates_count > 0 and not no_fail do
       exit({:shutdown, 1})
     end
   end
 
-  defp parse_library(opts) do
+  defp parse_library(opts, format) do
     case Keyword.get(opts, :library) do
       nil ->
         nil
@@ -104,7 +106,11 @@ defmodule Mix.Tasks.Propwise do
         :proper
 
       other ->
-        Mix.shell().error("Warning: Unknown library '#{other}', using default")
+        # Only show warning for text format to avoid polluting JSON output
+        if format == :text do
+          Mix.shell().error("Warning: Unknown library '#{other}', using default")
+        end
+
         nil
     end
   end

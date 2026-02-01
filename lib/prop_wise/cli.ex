@@ -31,14 +31,15 @@ defmodule PropWise.CLI do
   end
 
   defp run_analysis(path, opts) do
+    format = Keyword.get(opts, :format, "text") |> String.to_atom()
+
     unless File.dir?(path) do
       IO.puts(:stderr, "Error: #{path} is not a valid directory")
       System.halt(1)
     end
 
     min_score = Keyword.get(opts, :min_score, 4)
-    format = Keyword.get(opts, :format, "text") |> String.to_atom()
-    library = parse_library(opts)
+    library = parse_library(opts, format)
 
     # Only print status message for text format to avoid polluting JSON output
     if format == :text do
@@ -54,13 +55,14 @@ defmodule PropWise.CLI do
 
     Reporter.print_report(result, format: format)
 
-    # Exit with non-zero status if suggestions were found
-    if result.candidates_count > 0 do
+    # For JSON format, exit with 0 on success (candidates found means success)
+    # For text format, exit with non-zero if suggestions found
+    if format != :json and result.candidates_count > 0 do
       System.halt(1)
     end
   end
 
-  defp parse_library(opts) do
+  defp parse_library(opts, format) do
     case Keyword.get(opts, :library) do
       nil ->
         nil
@@ -72,7 +74,11 @@ defmodule PropWise.CLI do
         :proper
 
       other ->
-        IO.puts(:stderr, "Warning: Unknown library '#{other}', using default")
+        # Only show warning for text format to avoid polluting JSON output
+        if format == :text do
+          IO.puts(:stderr, "Warning: Unknown library '#{other}', using default")
+        end
+
         nil
     end
   end
