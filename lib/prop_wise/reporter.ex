@@ -4,103 +4,138 @@ defmodule PropWise.Reporter do
   """
 
   @doc """
-  Prints analysis results in a human-readable format.
+  Formats analysis results and returns as a string.
   """
-  def print_report(analysis_result, opts \\ []) do
+  def format_report(analysis_result, opts \\ []) do
     format = Keyword.get(opts, :format, :text)
 
     case format do
-      :text -> print_text_report(analysis_result)
-      :json -> print_json_report(analysis_result)
-      _ -> print_text_report(analysis_result)
+      :text -> format_text_report(analysis_result)
+      :json -> format_json_report(analysis_result)
+      _ -> format_text_report(analysis_result)
     end
   end
 
-  defp print_text_report(%{
+  @doc """
+  Prints analysis results in a human-readable format.
+  """
+  def print_report(analysis_result, opts \\ []) do
+    analysis_result
+    |> format_report(opts)
+    |> IO.puts()
+  end
+
+  defp format_text_report(%{
          candidates: candidates,
          inverse_pairs: inverse_pairs,
          total_functions: total,
          candidates_count: count,
          dropped_count: dropped
        }) do
-    IO.puts("\n" <> String.duplicate("=", 80))
-    IO.puts("PropWise Analysis Report")
-    IO.puts(String.duplicate("=", 80))
+    lines = [
+      "\n" <> String.duplicate("=", 80),
+      "PropWise Analysis Report",
+      String.duplicate("=", 80),
+      "\nSummary:",
+      "  Total functions analyzed: #{total}",
+      "  Property test candidates: #{count}",
+      "  Candidates dropped (below threshold): #{dropped}"
+    ]
 
-    IO.puts("\nSummary:")
-    IO.puts("  Total functions analyzed: #{total}")
-    IO.puts("  Property test candidates: #{count}")
-    IO.puts("  Candidates dropped (below threshold): #{dropped}")
-
-    if count > 0 do
-      percentage = Float.round(count / total * 100, 1)
-      IO.puts("  Coverage: #{percentage}%")
-    end
-
-    if not Enum.empty?(inverse_pairs) do
-      IO.puts("\n" <> String.duplicate("-", 80))
-      IO.puts("Inverse Function Pairs Detected:")
-      IO.puts(String.duplicate("-", 80))
-
-      for pair <- inverse_pairs do
-        {mod, name1, arity1} = pair.forward
-        {_mod, name2, arity2} = pair.inverse
-        IO.puts("\n  #{mod}.#{name1}/#{arity1} <-> #{name2}/#{arity2}")
-        IO.puts("  Suggestion: #{pair.suggestion}")
+    lines =
+      if count > 0 do
+        percentage = Float.round(count / total * 100, 1)
+        lines ++ ["  Coverage: #{percentage}%"]
+      else
+        lines
       end
-    end
 
-    if Enum.empty?(candidates) do
-      IO.puts("\nNo strong candidates found. Consider lowering the min_score threshold.")
-    else
-      IO.puts("\n" <> String.duplicate("-", 80))
-      IO.puts("Top Candidates (sorted by score):")
-      IO.puts(String.duplicate("-", 80))
+    lines =
+      if not Enum.empty?(inverse_pairs) do
+        pair_lines =
+          for pair <- inverse_pairs do
+            {mod, name1, arity1} = pair.forward
+            {_mod, name2, arity2} = pair.inverse
 
-      candidates
-      |> Enum.take(20)
-      |> Enum.each(&print_candidate/1)
-    end
+            [
+              "\n  #{mod}.#{name1}/#{arity1} <-> #{name2}/#{arity2}",
+              "  Suggestion: #{pair.suggestion}"
+            ]
+          end
+          |> List.flatten()
 
-    IO.puts("\n" <> String.duplicate("=", 80))
-    IO.puts("")
+        lines ++
+          [
+            "\n" <> String.duplicate("-", 80),
+            "Inverse Function Pairs Detected:",
+            String.duplicate("-", 80)
+          ] ++ pair_lines
+      else
+        lines
+      end
+
+    lines =
+      if Enum.empty?(candidates) do
+        lines ++ ["\nNo strong candidates found. Consider lowering the min_score threshold."]
+      else
+        candidate_lines =
+          candidates
+          |> Enum.take(20)
+          |> Enum.flat_map(&format_candidate/1)
+
+        lines ++
+          [
+            "\n" <> String.duplicate("-", 80),
+            "Top Candidates (sorted by score):",
+            String.duplicate("-", 80)
+          ] ++ candidate_lines
+      end
+
+    lines = lines ++ ["\n" <> String.duplicate("=", 80), ""]
+    Enum.join(lines, "\n")
   end
 
-  defp print_candidate(candidate) do
-    IO.puts("\n#{candidate.module}.#{candidate.name}/#{candidate.arity}")
-    IO.puts("  Score: #{candidate.score}")
-    IO.puts("  Location: #{relative_path(candidate.file)}:#{candidate.line}")
-    IO.puts("  Type: #{candidate.type}")
+  defp format_candidate(candidate) do
+    lines = [
+      "\n#{candidate.module}.#{candidate.name}/#{candidate.arity}",
+      "  Score: #{candidate.score}",
+      "  Location: #{relative_path(candidate.file)}:#{candidate.line}",
+      "  Type: #{candidate.type}"
+    ]
 
-    if not Enum.empty?(candidate.patterns) do
-      IO.puts("  Patterns:")
+    lines =
+      if not Enum.empty?(candidate.patterns) do
+        pattern_lines =
+          for {type, reason} <- candidate.patterns do
+            "    - #{format_pattern(type)}: #{reason}"
+          end
 
-      for {type, reason} <- candidate.patterns do
-        IO.puts("    - #{format_pattern(type)}: #{reason}")
+        lines ++ ["  Patterns:"] ++ pattern_lines
+      else
+        lines
       end
-    end
 
     if not Enum.empty?(candidate.suggestions) do
-      IO.puts("  Testing suggestions:")
+      suggestion_lines =
+        for suggestion <- candidate.suggestions do
+          "    - #{suggestion}"
+        end
 
-      for suggestion <- candidate.suggestions do
-        IO.puts("    - #{suggestion}")
-      end
+      lines ++ ["  Testing suggestions:"] ++ suggestion_lines
+    else
+      lines
     end
   end
 
-  defp print_json_report(analysis_result) do
-    json =
-      analysis_result
-      |> Map.update!(:candidates, fn candidates ->
-        Enum.map(candidates, &serialize_candidate/1)
-      end)
-      |> Map.update!(:inverse_pairs, fn pairs ->
-        Enum.map(pairs, &serialize_inverse_pair/1)
-      end)
-      |> Jason.encode!(pretty: true)
-
-    IO.puts(json)
+  defp format_json_report(analysis_result) do
+    analysis_result
+    |> Map.update!(:candidates, fn candidates ->
+      Enum.map(candidates, &serialize_candidate/1)
+    end)
+    |> Map.update!(:inverse_pairs, fn pairs ->
+      Enum.map(pairs, &serialize_inverse_pair/1)
+    end)
+    |> Jason.encode!(pretty: true)
   end
 
   defp serialize_candidate(candidate) do

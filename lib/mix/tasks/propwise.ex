@@ -14,6 +14,7 @@ defmodule Mix.Tasks.Propwise do
 
     * `-m, --min-score NUM` - Minimum score for candidates (default: 3)
     * `-f, --format FORMAT` - Output format: text or json (default: text)
+    * `-o, --output FILE` - Write output to file instead of stdout
     * `-l, --library LIB` - Property testing library: stream_data or proper (default: stream_data)
     * `--no-fail` - Exit with code 0 even when suggestions are found (default: false)
     * `-h, --help` - Show help message
@@ -40,6 +41,7 @@ defmodule Mix.Tasks.Propwise do
         strict: [
           min_score: :integer,
           format: :string,
+          output: :string,
           library: :string,
           no_fail: :boolean,
           help: :boolean
@@ -47,6 +49,7 @@ defmodule Mix.Tasks.Propwise do
         aliases: [
           m: :min_score,
           f: :format,
+          o: :output,
           l: :library,
           h: :help
         ]
@@ -83,7 +86,15 @@ defmodule Mix.Tasks.Propwise do
 
     result = Analyzer.analyze_project(path, analyzer_opts)
 
-    Reporter.print_report(result, format: format)
+    output_file = Keyword.get(opts, :output)
+
+    if output_file do
+      # Write to file instead of stdout
+      output = Reporter.format_report(result, format: format)
+      File.write!(output_file, output)
+    else
+      Reporter.print_report(result, format: format)
+    end
 
     # For JSON format, exit with 0 on success (candidates found means success)
     # For text format, exit with non-zero if suggestions found (unless --no-fail)
@@ -128,6 +139,7 @@ defmodule Mix.Tasks.Propwise do
     Options:
       -m, --min-score NUM     Minimum score for candidates (default: 4)
       -f, --format FORMAT     Output format: text or json (default: text)
+      -o, --output FILE       Write output to file instead of stdout
       -l, --library LIB       Property testing library: stream_data or proper (default: stream_data)
       --no-fail               Exit with code 0 even when suggestions are found
       -h, --help              Show this help message
