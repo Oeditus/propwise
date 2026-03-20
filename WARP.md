@@ -84,7 +84,7 @@ The codebase follows a pipeline architecture with 12 modules:
      - I/O operations (File, IO, Logger)
      - Process operations (GenServer, Agent, Task, Process)
      - Database operations (Ecto)
-     - HTTP requests (HTTPoison, Tesla, Req)
+     - HTTP requests (Req)
      - System calls, message passing (send, spawn, receive)
      - ETS/DETS/Mnesia operations
    - Returns `{:pure, []}` or `{:impure, side_effects}`

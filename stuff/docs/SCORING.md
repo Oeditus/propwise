@@ -44,8 +44,6 @@ PropWise walks the function's AST looking for the following side effects:
 - `Ecto.Query.*` - Query building with execution
 
 #### HTTP Operations
-- `HTTPoison.*` - HTTP requests
-- `Tesla.*` - HTTP client operations
 - `Req.*` - HTTP requests
 
 #### System Operations
@@ -53,11 +51,6 @@ PropWise walks the function's AST looking for the following side effects:
 - `:ets.*` - ETS table operations
 - `:dets.*` - DETS operations
 - `:mnesia.*` - Mnesia database operations
-
-#### State Modification
-- `put_in/2` - Nested data structure updates
-- `update_in/2` - Nested data structure updates
-- `get_and_update_in/2` - Nested data structure updates
 
 ### Result
 
@@ -92,10 +85,11 @@ Collection operations often have invariants like:
 ### 2. Data Transformations
 
 **Detection criteria:**
-- Contains pipeline operations (`|>`)
-- Contains `with` expressions
-- Manipulates struct fields
-- Manipulates map fields
+- Struct update syntax (`%Struct{...}`)
+- Map update syntax (`%{map | key: val}`)
+- Map write operations (`Map.put`, `Map.merge`, `Map.update`, etc.)
+
+Note: Bare pipelines (`|>`) and `with` expressions are deliberately excluded since they are too common in idiomatic Elixir to be meaningful signals.
 
 **Why property-testable:**
 Transformations should maintain certain invariants:
@@ -111,10 +105,13 @@ Transformations should maintain certain invariants:
 
 ### 3. Validation Functions
 
-**Detection criteria:**
-- Function name starts with "valid" or contains "validate"
-- Function name starts with "check"
-- Function returns a boolean value
+**Detection criteria (name-based conventions):**
+- Function name ends with `?` (Elixir predicate convention)
+- Function name starts with `valid` or contains `validate`
+- Function name starts with `check`
+- Function name starts with `is_`
+
+Note: Detection relies on naming conventions rather than body analysis, since boolean expressions appear in nearly all non-trivial functions.
 
 **Why property-testable:**
 Validators should be:
@@ -130,16 +127,16 @@ Validators should be:
 ### 4. Algebraic Structures
 
 **Detection criteria:**
-Function name contains:
-- "merge"
-- "concat"
-- "combine"
-- "union"
-- "intersect"
-- "compose"
-- "append"
-- "add"
-- "multiply"
+Function name contains one of these as an exact underscore-separated segment:
+- `merge`
+- `concat`
+- `combine`
+- `union`
+- `intersect`
+- `compose`
+- `append`
+
+Note: Segment matching means `merge_configs` matches (segment `merge`), but `submerge` does not.
 
 **Why property-testable:**
 Algebraic operations often have mathematical properties:
@@ -156,10 +153,12 @@ Algebraic operations often have mathematical properties:
 ### 5. Encoder/Decoder Functions
 
 **Detection criteria:**
-Function name contains:
-- "encode" or "decode"
-- "serialize" or "deserialize"
-- "to_json" or "from_json"
+Function name contains one of these as an exact underscore-separated segment:
+- `encode` or `decode`
+- `serialize` or `deserialize`
+
+Or the full function name matches:
+- `to_json`, `from_json`, `to_xml`, `from_xml`
 
 **Why property-testable:**
 Encoding/decoding should have:
@@ -175,9 +174,8 @@ Encoding/decoding should have:
 ### 6. Parser Functions
 
 **Detection criteria:**
-- Function name contains "parse"
-- Function body uses `String.split`
-- Function body uses `Regex.run` or `Regex.scan`
+- Function name contains `parse` as an exact underscore-separated segment
+- Function body uses `Regex.run`, `Regex.scan`, or `Regex.match?`
 
 **Why property-testable:**
 Parsers should:
@@ -192,9 +190,12 @@ Parsers should:
 
 ### 7. Numeric Algorithms
 
-**Detection criteria:**
-- Uses numeric functions: `div`, `rem`, `abs`, `round`, `floor`, `ceil`, `sqrt`, `pow`
-- Contains arithmetic operators: `+`, `-`, `*`, `/`
+**Detection criteria (AST-based, not regex):**
+- Uses `:math` module calls (e.g., `:math.sqrt/1`, `:math.pow/2`)
+- Uses kernel numeric functions: `div`, `rem`, `abs`, `round`, `floor`, `ceil`, `trunc`
+- Contains 2 or more binary arithmetic operator nodes (`+`, `-`, `*`, `/`) in the AST
+
+Note: A single arithmetic operation (e.g., `x + 1`) is not flagged. This prevents incidental matches on pipe operators, function arrows, and other syntax that happen to contain these characters.
 
 **Why property-testable:**
 Numeric functions often have:
@@ -259,13 +260,13 @@ Where:
 defp double(x), do: x * 2
 ```
 - Pure: ✓ (base = 1)
-- Patterns: Numeric (2)
+- Patterns: None (single arithmetic op `*` does not meet the 2+ threshold)
 - Multi-pattern bonus: 0
 - Complexity: 0 (too simple)
 - Visibility: 0 (private)
-- **Total: 3**
+- **Total: 1**
 
-### Example 2: Complex Public Transformation
+### Example 2: Public Collection Operation
 ```elixir
 def transform_users(users) do
   users
@@ -275,11 +276,11 @@ def transform_users(users) do
 end
 ```
 - Pure: ✓ (base = 1)
-- Patterns: Collection (2), Transformation (2), Validation (2)
-- Multi-pattern bonus: 2
+- Patterns: Collection (2) -- detected via `Enum.map`, `Enum.filter`, `Enum.sort_by`
+- Multi-pattern bonus: 0
 - Complexity: 1 (multiple lines)
 - Visibility: 1 (public)
-- **Total: 11**
+- **Total: 5**
 
 ### Example 3: Round-trip Functions
 ```elixir
@@ -305,7 +306,7 @@ end
 
 ## Minimum Score Threshold
 
-By default, PropWise only reports functions with a score of 3 or higher. This threshold can be adjusted:
+By default, PropWise only reports functions with a score of 4 or higher. This threshold can be adjusted:
 
 ```bash
 mix propwise --min-score 5

@@ -49,10 +49,11 @@ defmodule PropWise do
   ## Returns
 
   A map containing:
-    - `:candidates` - List of function candidates with scores
+    - `:candidates` - List of `PropWise.Candidate` structs with scores
     - `:inverse_pairs` - Detected inverse function pairs
     - `:total_functions` - Total number of functions analyzed
-    - `:candidates_count` - Number of candidates found
+    - `:candidates_count` - Number of candidates above the score threshold
+    - `:dropped_count` - Number of candidates that scored > 0 but below the threshold
 
   ## Examples
 

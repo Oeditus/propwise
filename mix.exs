@@ -121,7 +121,8 @@ defmodule PropWise.MixProject do
       groups_for_modules: [
         Core: [
           PropWise,
-          PropWise.Analyzer
+          PropWise.Analyzer,
+          PropWise.SuggestionGenerator
         ],
         "AST Analysis": [
           PropWise.Parser,
@@ -132,8 +133,13 @@ defmodule PropWise.MixProject do
           PropWise.Reporter
         ],
         "Command Line": [
+          PropWise.CommandLine,
           PropWise.CLI,
           Mix.Tasks.Propwise
+        ],
+        "Data Structures": [
+          PropWise.FunctionInfo,
+          PropWise.Candidate
         ],
         Configuration: [
           PropWise.Config

@@ -2,11 +2,18 @@
 #
 # This file allows you to customize PropWise's behavior.
 # Copy this file to .propwise.exs in your project root to use it.
+#
+# Security note: This file is evaluated with Code.eval_file/1,
+# which executes arbitrary Elixir code.
 
 %{
   # Directories to analyze (relative to project root)
   # Default: ["lib"]
-  analyze_paths: ["lib"]
+  analyze_paths: ["lib"],
+
+  # Property-based testing library to use for suggestions
+  # Options: :stream_data (default) or :proper
+  library: :stream_data
 
   # You can add multiple directories:
   # analyze_paths: ["lib", "src", "apps/my_app/lib"]

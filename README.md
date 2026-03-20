@@ -26,11 +26,11 @@ Detects side effects by analyzing function calls:
 ### Pattern Detection
 Identifies functions with characteristics ideal for property testing:
 - **Collection Operations**: Functions using Enum, Stream, or list comprehensions
-- **Data Transformations**: Pipeline operations, struct/map manipulation
-- **Validation Functions**: Boolean predicates and validation logic
-- **Algebraic Structures**: Merge, concat, union, and other potentially algebraic operations
-- **Encoders/Decoders**: Serialization and parsing functions
-- **Numeric Algorithms**: Arithmetic and mathematical operations
+- **Data Transformations**: Struct update and map write operations
+- **Validation Functions**: Functions following naming conventions (`?` suffix, `valid`/`check`/`is_` prefix)
+- **Algebraic Structures**: Merge, concat, union, compose, and other potentially algebraic operations
+- **Encoders/Decoders**: Serialization and encoding/decoding functions
+- **Numeric Algorithms**: `:math` module calls, kernel numeric functions, and significant arithmetic (2+ operations)
 
 ### Inverse Pair Detection
 Finds function pairs that are inverses of each other:
@@ -60,7 +60,7 @@ Add `propwise` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:propwise, "~> 0.1.0"}
+    {:propwise, "~> 0.2"}
   ]
 end
 ```
@@ -179,6 +179,7 @@ PropWise Analysis Report
 Summary:
   Total functions analyzed: 143
   Property test candidates: 24
+  Candidates dropped (below threshold): 12
   Coverage: 16.8%
 
 --------------------------------------------------------------------------------
@@ -193,57 +194,37 @@ Top Candidates (sorted by score):
 --------------------------------------------------------------------------------
 
 MyApp.Parser.parse_json/1
-  Score: 8
+  Score: 6
   Location: lib/my_app/parser.ex:42
   Type: public
   Patterns:
     - Parser: Parser function
-    - Data Transformation: Pipeline transformation
   Testing suggestions:
     - property "parse returns expected structure" do
-  check all input <- string(:alphanumeric) do
-    case Parser.parse_json(input) do
-      {:ok, result} -> assert valid_parsed_structure?(result)
-      {:error, _} -> true
-    end
-  end
-end
-
-    - property "parse/format round-trip" do
-  check all data <- valid_data_generator() do
-    formatted = Parser.format(data)
-    assert Parser.parse_json(formatted) == {:ok, data}
-  end
-end
-
-    - property "maintains structural invariants" do
-  check all input <- term() do
-    result = Parser.parse_json(input)
-    # Add your invariant checks here
-    assert valid_structure?(result)
-  end
-end
+        check all input <- string(:alphanumeric) do
+          case Parser.parse_json(input) do
+            {:ok, result} ->
+              # TODO: Add structural assertions for parsed output.
+              assert result != nil
+            {:error, _} -> true
+          end
+        end
+      end
 
 MyApp.List.merge_sorted/2
-  Score: 7
+  Score: 8
   Location: lib/my_app/list.ex:15
   Type: public
   Patterns:
     - Collection Operation: Uses Enum collection operations
     - Algebraic Structure: Potentially algebraic operation
   Testing suggestions:
-    - property "preserves input size" do
-  check all list <- list_of(term()) do
-    assert length(List.merge_sorted(list)) == length(list)
-  end
-end
-
     - property "associativity" do
-  check all a <- term(), b <- term(), c <- term() do
-    assert List.merge_sorted(List.merge_sorted(a, b), c) ==
-           List.merge_sorted(a, List.merge_sorted(b, c))
-  end
-end
+        check all a <- term(), b <- term(), c <- term() do
+          assert List.merge_sorted(List.merge_sorted(a, b), c) ==
+                 List.merge_sorted(a, List.merge_sorted(b, c))
+        end
+      end
 ```
 
 ## Scoring System
@@ -295,7 +276,9 @@ If no `.propwise.exs` file is present, PropWise will use the defaults.
 
 - `-m, --min-score NUM`: Minimum score for candidates (default: 4)
 - `-f, --format FORMAT`: Output format: text or json (default: text)
+- `-o, --output FILE`: Write output to file instead of stdout
 - `-l, --library LIB`: Property testing library: stream_data or proper (default: stream_data)
+- `--no-fail`: Exit with code 0 even when suggestions are found
 - `-h, --help`: Show help message
 
 Note: CLI options override configuration file settings.
