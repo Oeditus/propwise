@@ -6,13 +6,9 @@ defmodule Mix.Tasks.Propwise do
 
       mix propwise [OPTIONS] [PATH]
 
-  ## Arguments
-
-    * `PATH` - Path to the Elixir project to analyze (default: current directory)
-
   ## Options
 
-    * `-m, --min-score NUM` - Minimum score for candidates (default: 3)
+    * `-m, --min-score NUM` - Minimum score for candidates (default: 4)
     * `-f, --format FORMAT` - Output format: text or json (default: text)
     * `-o, --output FILE` - Write output to file instead of stdout
     * `-l, --library LIB` - Property testing library: stream_data or proper (default: stream_data)
@@ -32,140 +28,29 @@ defmodule Mix.Tasks.Propwise do
 
   use Mix.Task
 
-  alias PropWise.{Analyzer, Reporter}
+  alias PropWise.CommandLine
 
   @impl Mix.Task
   def run(args) do
-    {opts, paths, _} =
-      OptionParser.parse(args,
-        strict: [
-          min_score: :integer,
-          format: :string,
-          output: :string,
-          library: :string,
-          no_fail: :boolean,
-          help: :boolean
-        ],
-        aliases: [
-          m: :min_score,
-          f: :format,
-          o: :output,
-          l: :library,
-          h: :help
-        ]
-      )
+    {opts, paths} = CommandLine.parse_args(args)
 
     if opts[:help] do
-      print_help()
+      Mix.shell().info(CommandLine.help_text())
     else
       path = List.first(paths) || "."
-      run_analysis(path, opts)
+
+      shell = Mix.shell()
+
+      callbacks = [
+        error: &shell.error/1,
+        info: &shell.info/1
+      ]
+
+      case CommandLine.run_analysis(path, opts, callbacks) do
+        {:suggestions_found, _} -> exit({:shutdown, 1})
+        {:error, _} -> exit({:shutdown, 1})
+        :ok -> :ok
+      end
     end
-  end
-
-  defp run_analysis(path, opts) do
-    format = Keyword.get(opts, :format, "text") |> String.to_atom()
-
-    unless File.dir?(path) do
-      Mix.shell().error("Error: #{path} is not a valid directory")
-      exit({:shutdown, 1})
-    end
-
-    min_score = Keyword.get(opts, :min_score, 4)
-    library = parse_library(opts, format)
-
-    # Only print status message for text format to avoid polluting JSON output
-    if format == :text do
-      Mix.shell().info("Analyzing #{path}...")
-    end
-
-    analyzer_opts = [min_score: min_score]
-
-    analyzer_opts =
-      if library, do: Keyword.put(analyzer_opts, :library, library), else: analyzer_opts
-
-    result = Analyzer.analyze_project(path, analyzer_opts)
-
-    output_file = Keyword.get(opts, :output)
-
-    if output_file do
-      # Write to file instead of stdout
-      output = Reporter.format_report(result, format: format)
-      File.write!(output_file, output)
-    else
-      Reporter.print_report(result, format: format)
-    end
-
-    # For JSON format, exit with 0 on success (candidates found means success)
-    # For text format, exit with non-zero if suggestions found (unless --no-fail)
-    no_fail = Keyword.get(opts, :no_fail, false)
-
-    if format != :json and result.candidates_count > 0 and not no_fail do
-      exit({:shutdown, 1})
-    end
-  end
-
-  defp parse_library(opts, format) do
-    case Keyword.get(opts, :library) do
-      nil ->
-        nil
-
-      "stream_data" ->
-        :stream_data
-
-      "proper" ->
-        :proper
-
-      other ->
-        # Only show warning for text format to avoid polluting JSON output
-        if format == :text do
-          Mix.shell().error("Warning: Unknown library '#{other}', using default")
-        end
-
-        nil
-    end
-  end
-
-  defp print_help do
-    Mix.shell().info("""
-    PropWise - Property-Based Testing Candidate Detector
-
-    Usage:
-      mix propwise [OPTIONS] [PATH]
-
-    Arguments:
-      [PATH]                  Path to the Elixir project to analyze (default: .)
-
-    Options:
-      -m, --min-score NUM     Minimum score for candidates (default: 4)
-      -f, --format FORMAT     Output format: text or json (default: text)
-      -o, --output FILE       Write output to file instead of stdout
-      -l, --library LIB       Property testing library: stream_data or proper (default: stream_data)
-      --no-fail               Exit with code 0 even when suggestions are found
-      -h, --help              Show this help message
-
-    Examples:
-      mix propwise
-      mix propwise --min-score 5
-      mix propwise --format json
-      mix propwise --library proper
-      mix propwise ../other_project
-
-    The task analyzes your Elixir codebase to find functions that are good
-    candidates for property-based testing. It looks for:
-      - Pure functions (no side effects)
-      - Collection operations
-      - Data transformations
-      - Encoders/decoders and inverse function pairs
-      - Validation functions
-      - Algebraic structures
-
-    Each candidate is scored based on multiple factors and includes
-    suggestions for what properties to test.
-
-    Exit codes:
-      0 - No suggestions found
-      1 - Suggestions found or error occurred
-    """)
   end
 end

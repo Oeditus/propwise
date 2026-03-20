@@ -256,7 +256,7 @@ Functions are scored based on multiple factors:
 - **Complexity**: 1 bonus point for non-trivial functions
 - **Visibility**: 1 bonus point for public functions
 
-Default minimum score is 3, but this can be adjusted based on your needs.
+Default minimum score is 4, but this can be adjusted based on your needs.
 
 **For detailed information about all detection criteria and scoring rules, see [Scoring](stuff/docs/SCORING.md).**
 
@@ -293,7 +293,7 @@ If no `.propwise.exs` file is present, PropWise will use the defaults.
 
 ### CLI Options
 
-- `-m, --min-score NUM`: Minimum score for candidates (default: 3)
+- `-m, --min-score NUM`: Minimum score for candidates (default: 4)
 - `-f, --format FORMAT`: Output format: text or json (default: text)
 - `-l, --library LIB`: Property testing library: stream_data or proper (default: stream_data)
 - `-h, --help`: Show help message
@@ -302,7 +302,7 @@ Note: CLI options override configuration file settings.
 
 ### Library Options
 
-- `:min_score` - Minimum score threshold (integer, default: 3)
+- `:min_score` - Minimum score threshold (integer, default: 4)
 - `:format` - Output format (`:text` or `:json`, default: `:text`)
 - `:library` - Property testing library (`:stream_data` or `:proper`, default: `:stream_data`)
 
@@ -324,6 +324,11 @@ Note: CLI options override configuration file settings.
 - Pattern detection is heuristic-based
 - Doesn't analyze macros or dynamically generated code in depth
 
+## Security Note
+
+PropWise loads configuration from `.propwise.exs` files using `Code.eval_file/1`,
+which executes arbitrary Elixir code. Only analyze projects you trust.
+
 ## Contributing
 
 Contributions are welcome! Areas for improvement:
@@ -331,7 +336,6 @@ Contributions are welcome! Areas for improvement:
 - Additional pattern detectors
 - Smarter purity analysis (tracking function calls across modules)
 - Integration with existing property testing libraries
-- Configuration file support
 - IDE integration
 
 ## License

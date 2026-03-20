@@ -63,7 +63,7 @@ mix propwise --format json
 
 ### Core Components
 
-The codebase follows a pipeline architecture with 9 main modules:
+The codebase follows a pipeline architecture with 12 modules:
 
 1. **PropWise.Config** (`lib/prop_wise/config.ex`)
    - Loads configuration from `.propwise.exs` file
@@ -75,7 +75,8 @@ The codebase follows a pipeline architecture with 9 main modules:
    - Entry point for AST extraction
    - Recursively finds `.ex` files in the `lib` directory only (does not analyze test files or dependencies)
    - Parses files into ASTs and extracts function definitions with metadata (name, arity, module, args, body, location, visibility)
-   - Returns list of function metadata maps
+   - Returns list of `PropWise.FunctionInfo` structs
+   - Accepts `analyze_paths` option to avoid re-loading config
 
 3. **PropWise.PurityAnalyzer** (`lib/prop_wise/purity_analyzer.ex`)
    - Determines if functions are pure (no side effects)
@@ -91,13 +92,14 @@ The codebase follows a pipeline architecture with 9 main modules:
 4. **PropWise.PatternDetector** (`lib/prop_wise/pattern_detector.ex`)
    - Identifies patterns suitable for property testing:
      - Collection operations (Enum, Stream, comprehensions)
-     - Data transformations (pipelines, struct/map manipulation)
-     - Validation functions (predicates, checks)
+     - Data transformations (struct/map manipulation only, not bare pipelines)
+     - Validation functions (name-based: `?` suffix, `valid`/`check`/`is_` prefix)
      - Algebraic structures (merge, concat, union, compose)
      - Encoders/decoders (encode/decode, serialize/deserialize)
      - Parsers (string parsing, regex)
-     - Numeric algorithms (arithmetic, math operations)
-   - Also finds inverse function pairs (encode/decode, to_*/from_*, etc.)
+     - Numeric algorithms (AST-based detection: :math calls, kernel numeric fns, 2+ arithmetic ops)
+   - Also finds inverse function pairs using segment-based name matching
+   - Computes `Macro.to_string(body)` once and threads through all detectors
    - Returns list of `{pattern_type, reason}` tuples
 
 5. **PropWise.Analyzer** (`lib/prop_wise/analyzer.ex`)
@@ -110,15 +112,17 @@ The codebase follows a pipeline architecture with 9 main modules:
      - Complexity bonus: 1 point for non-trivial functions (>3 lines or conditional logic)
      - Visibility bonus: 1 point for public functions
    - Generates testing suggestions for each pattern type
-   - Filters by minimum score (default: 3)
-   - Returns sorted list of candidates
+   - Loads config once and threads through to Parser
+   - Filters by minimum score (default: 4)
+   - Returns sorted list of `PropWise.Candidate` structs
 
 6. **PropWise.SuggestionGenerator** (`lib/prop_wise/suggestion_generator.ex`)
    - Generates library-specific property test suggestions
    - Supports multiple libraries:
      - `stream_data`: Uses `check all` syntax with generators like `list_of`, `one_of`
      - `PropEr`: Uses `forall` syntax with generators like `list`, `oneof`
-   - Provides pattern-specific test templates (collection ops, transformations, validations, etc.)
+   - Uses template-based approach with library-specific syntax parameterized
+   - Generates arity-aware call sites using actual function names
    - Main function: `generate/3` takes patterns, function info, and library
 
 7. **PropWise.Reporter** (`lib/prop_wise/reporter.ex`)
@@ -126,15 +130,22 @@ The codebase follows a pipeline architecture with 9 main modules:
    - Supports text and JSON formats
    - Displays candidates sorted by score with suggestions
 
-8. **PropWise.CLI** (`lib/prop_wise/cli.ex`)
-   - Command-line interface for escript
-   - Parses CLI arguments (min-score, format, library, help)
-   - Entry point: `main/1` function
+8. **PropWise.CommandLine** (`lib/prop_wise/command_line.ex`)
+   - Shared argument parsing and analysis logic for CLI and Mix task
+   - Eliminates duplication between escript and Mix entry points
 
-9. **Mix.Tasks.Propwise** (`lib/mix/tasks/propwise.ex`)
-   - Mix task interface (`mix propwise`)
-   - Same functionality as CLI but integrated with Mix
-   - Entry point: `run/1` function
+9. **PropWise.CLI** (`lib/prop_wise/cli.ex`)
+   - Thin escript entry point wrapper around CommandLine
+
+10. **Mix.Tasks.Propwise** (`lib/mix/tasks/propwise.ex`)
+    - Thin Mix task wrapper around CommandLine
+
+11. **PropWise.FunctionInfo** (`lib/prop_wise/function_info.ex`)
+    - Struct with enforced keys for parsed function metadata
+
+12. **PropWise.Candidate** (`lib/prop_wise/candidate.ex`)
+    - Struct with enforced keys for scored analysis results
+    - Defines types for purity, side effects, and patterns
 
 ### Data Flow
 
@@ -155,9 +166,9 @@ Reporter: Format and display results
 
 ### Key Data Structures
 
-**Function Metadata** (from Parser):
+**Function Metadata** (`PropWise.FunctionInfo` struct):
 ```elixir
-%{
+%PropWise.FunctionInfo{
   module: "ModuleName",
   name: :function_name,
   arity: 2,
@@ -169,9 +180,9 @@ Reporter: Format and display results
 }
 ```
 
-**Candidate Result** (from Analyzer):
+**Candidate Result** (`PropWise.Candidate` struct):
 ```elixir
-%{
+%PropWise.Candidate{
   module: "ModuleName",
   name: :function_name,
   arity: 2,

@@ -30,7 +30,7 @@ defmodule PropWise do
 
       PropWise.analyze("./my_project", min_score: 5)
 
-  Output formats: `:text` (default) or `:json`
+  The default minimum score is 4. Output formats: `:text` (default) or `:json`
 
       PropWise.print_report(result, format: :json)
   """
@@ -44,7 +44,7 @@ defmodule PropWise do
 
     - `path` - Path to the Elixir project directory
     - `opts` - Keyword list of options:
-      - `:min_score` - Minimum score for candidates (default: 3)
+    - `:min_score` - Minimum score for candidates (default: 4)
 
   ## Returns
 
@@ -59,6 +59,7 @@ defmodule PropWise do
       result = PropWise.analyze(".")
       result = PropWise.analyze("./lib", min_score: 5)
   """
+  @spec analyze(String.t(), keyword()) :: PropWise.Analyzer.analysis_result()
   def analyze(path, opts \\ []) do
     Analyzer.analyze_project(path, opts)
   end
@@ -78,6 +79,7 @@ defmodule PropWise do
       PropWise.print_report(result)
       PropWise.print_report(result, format: :json)
   """
+  @spec print_report(PropWise.Analyzer.analysis_result(), keyword()) :: :ok
   def print_report(analysis_result, opts \\ []) do
     Reporter.print_report(analysis_result, opts)
   end

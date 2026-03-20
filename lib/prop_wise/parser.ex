@@ -3,21 +3,25 @@ defmodule PropWise.Parser do
   Parses Elixir source files and extracts function definitions with their ASTs.
   """
 
-  alias PropWise.Config
+  alias PropWise.{Config, FunctionInfo}
 
   @doc """
   Parses all `.ex` files in the given directory recursively.
-  Returns a list of function metadata.
+  Returns a list of `PropWise.FunctionInfo` structs.
+
+  Accepts an optional `analyze_paths` list to avoid re-loading config.
   """
-  def parse_project(path) do
+  @spec parse_project(String.t(), keyword()) :: [FunctionInfo.t()]
+  def parse_project(path, opts \\ []) do
     path
-    |> find_elixir_files()
+    |> find_elixir_files(opts)
     |> Enum.flat_map(&parse_file/1)
   end
 
   @doc """
   Parses a single Elixir file and extracts all function definitions.
   """
+  @spec parse_file(String.t()) :: [FunctionInfo.t()]
   def parse_file(file_path) do
     with {:ok, content} <- File.read(file_path),
          {:ok, ast} <- Code.string_to_quoted(content) do
@@ -27,8 +31,8 @@ defmodule PropWise.Parser do
     end
   end
 
-  defp find_elixir_files(path) do
-    analyze_paths = Config.analyze_paths(path)
+  defp find_elixir_files(path, opts) do
+    analyze_paths = Keyword.get(opts, :analyze_paths) || Config.analyze_paths(path)
 
     analyze_paths
     |> Enum.flat_map(fn relative_path ->
@@ -62,7 +66,7 @@ defmodule PropWise.Parser do
     {_ast, functions} =
       Macro.prewalk(block, [], fn
         {:def, meta, [{name, _meta2, args}, body]} = node, acc when is_list(args) ->
-          function_info = %{
+          function_info = %FunctionInfo{
             module: module_name,
             name: name,
             arity: length(args),
@@ -76,7 +80,7 @@ defmodule PropWise.Parser do
           {node, [function_info | acc]}
 
         {:defp, meta, [{name, _meta2, args}, body]} = node, acc when is_list(args) ->
-          function_info = %{
+          function_info = %FunctionInfo{
             module: module_name,
             name: name,
             arity: length(args),

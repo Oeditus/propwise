@@ -3,16 +3,36 @@ defmodule PropWise.Analyzer do
   Main analyzer that combines purity analysis and pattern detection to score functions.
   """
 
-  alias PropWise.{Config, Parser, PatternDetector, PurityAnalyzer, SuggestionGenerator}
+  alias PropWise.{
+    Candidate,
+    Config,
+    FunctionInfo,
+    Parser,
+    PatternDetector,
+    PurityAnalyzer,
+    SuggestionGenerator
+  }
+
+  @type analysis_result :: %{
+          candidates: [Candidate.t()],
+          inverse_pairs: [map()],
+          total_functions: non_neg_integer(),
+          candidates_count: non_neg_integer(),
+          dropped_count: non_neg_integer()
+        }
 
   @doc """
   Analyzes all functions in a project and returns candidates for property-based testing.
   """
+  @spec analyze_project(String.t(), keyword()) :: analysis_result()
   def analyze_project(path, opts \\ []) do
+    # Load config once and thread through to avoid double Code.eval_file
+    config = Config.load(path)
     min_score = Keyword.get(opts, :min_score, 4)
-    library = Keyword.get(opts, :library) || Config.library(path)
+    library = Keyword.get(opts, :library) || Map.get(config, :library, :stream_data)
+    analyze_paths = Map.get(config, :analyze_paths, ["lib"])
 
-    functions = Parser.parse_project(path)
+    functions = Parser.parse_project(path, analyze_paths: analyze_paths)
 
     all_scored_candidates =
       functions
@@ -41,13 +61,14 @@ defmodule PropWise.Analyzer do
   @doc """
   Analyzes a single function and returns a scored result.
   """
+  @spec analyze_function(FunctionInfo.t() | map(), atom()) :: Candidate.t()
   def analyze_function(function_info, library \\ :stream_data) do
     purity = PurityAnalyzer.analyze(function_info)
     patterns = PatternDetector.detect_patterns(function_info)
 
     score = calculate_score(purity, patterns, function_info)
 
-    %{
+    %Candidate{
       module: function_info.module,
       name: function_info.name,
       arity: function_info.arity,

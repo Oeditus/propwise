@@ -1,342 +1,313 @@
 defmodule PropWise.SuggestionGenerator do
   @moduledoc """
   Generates property-based testing suggestions for different libraries.
-  Supports stream_data and PropEr.
+
+  Uses a template-based approach where library-specific syntax (stream_data vs PropEr)
+  is parameterized, and function name/arity are used to generate accurate call sites.
   """
 
   @doc """
   Generates testing suggestions based on detected patterns and library.
   """
+  @spec generate([PropWise.Candidate.pattern()], PropWise.FunctionInfo.t() | map(), atom()) ::
+          [String.t()]
   def generate(patterns, function_info, library) do
-    func_name = function_info.name
-    module_name = function_info.module |> String.split(".") |> List.last()
+    ctx = build_context(function_info, library)
 
     patterns
     |> Enum.flat_map(fn {type, _reason} ->
-      generate_for_pattern(type, module_name, func_name, library)
+      generate_for_pattern(type, ctx)
     end)
     |> Enum.uniq()
   end
 
-  defp generate_for_pattern(:collection_operation, module_name, func_name, :stream_data) do
+  defp build_context(function_info, library) do
+    module_name = function_info.module |> String.split(".") |> List.last()
+    func_name = function_info.name
+    arity = function_info.arity
+
+    %{
+      module: module_name,
+      func: func_name,
+      arity: arity,
+      call: format_call(module_name, func_name, arg_names(arity)),
+      library: library
+    }
+  end
+
+  defp arg_names(0), do: []
+  defp arg_names(1), do: ["input"]
+  defp arg_names(2), do: ["a", "b"]
+  defp arg_names(3), do: ["a", "b", "c"]
+  defp arg_names(n) when n > 3, do: Enum.map(1..n, &"arg#{&1}")
+
+  defp format_call(module, func, args) do
+    "#{module}.#{func}(#{Enum.join(args, ", ")})"
+  end
+
+  # --- Library-specific syntax helpers ---
+
+  defp prop_header(:stream_data, bindings), do: "check all #{bindings} do"
+  defp prop_header(:proper, bindings), do: "forall #{bindings} do"
+
+  defp gen_binding(:stream_data, var, gen), do: "#{var} <- #{gen}"
+  defp gen_binding(:proper, var, gen), do: "#{var} <- #{gen}"
+
+  defp gen_bindings(:proper, bindings) when length(bindings) > 1 do
+    vars = Enum.map_join(bindings, ", ", fn {var, _} -> var end)
+    gens = Enum.map_join(bindings, ", ", fn {_, gen} -> gen end)
+    "{#{vars}} <- {#{gens}}"
+  end
+
+  defp gen_bindings(lib, bindings) do
+    Enum.map_join(bindings, ", ", fn {var, gen} -> gen_binding(lib, var, gen) end)
+  end
+
+  defp assert_stmt(:stream_data, expr), do: "assert #{expr}"
+  defp assert_stmt(:proper, expr), do: expr
+
+  defp gen(:stream_data, :list), do: "list_of(term())"
+  defp gen(:stream_data, :string), do: "string(:alphanumeric)"
+  defp gen(:stream_data, :binary), do: "binary()"
+  defp gen(:stream_data, :number), do: "one_of([integer(), float()])"
+  defp gen(:stream_data, :term), do: "term()"
+
+  defp gen(:proper, :list), do: "list(term())"
+  defp gen(:proper, :string), do: "list(range(?a, ?z))"
+  defp gen(:proper, :binary), do: "binary()"
+  defp gen(:proper, :number), do: "oneof([integer(), float()])"
+  defp gen(:proper, :term), do: "term()"
+
+  # Generate term() bindings for the function's actual arity
+  defp arity_bindings(ctx) do
+    bindings =
+      ctx
+      |> arg_names_for()
+      |> Enum.map(fn name -> {name, gen(ctx.library, :term)} end)
+
+    gen_bindings(ctx.library, bindings)
+  end
+
+  defp arg_names_for(%{arity: arity}), do: arg_names(arity)
+
+  # --- Pattern-specific suggestion generators ---
+
+  defp generate_for_pattern(:collection_operation, ctx) do
+    lib = ctx.library
+    list_binding = gen_binding(lib, "list", gen(lib, :list))
+
     [
-      """
-      property "preserves input size" do
-        check all list <- list_of(term()) do
-          assert length(#{module_name}.#{func_name}(list)) == length(list)
-        end
-      end
-      """,
-      """
-      property "contains all original elements" do
-        check all list <- list_of(term()) do
-          result = #{module_name}.#{func_name}(list)
-          assert Enum.all?(list, &(&1 in result))
-        end
-      end
-      """
+      property("idempotency or invariant on collection", lib, list_binding, """
+      result = #{ctx.call |> replace_first_arg("list")}
+      # TODO: Replace with the invariant that holds for your function.
+      # Examples: length is preserved, elements are preserved, order is maintained.
+      #{assert_stmt(lib, "is_list(result)")}
+      """)
     ]
   end
 
-  defp generate_for_pattern(:collection_operation, module_name, func_name, :proper) do
+  defp generate_for_pattern(:transformation, ctx) do
+    lib = ctx.library
+    bindings = arity_bindings(ctx)
+
     [
-      """
-      property "preserves input size" do
-        forall list <- list(term()) do
-          length(#{module_name}.#{func_name}(list)) == length(list)
-        end
-      end
-      """,
-      """
-      property "contains all original elements" do
-        forall list <- list(term()) do
-          result = #{module_name}.#{func_name}(list)
-          Enum.all?(list, &(&1 in result))
-        end
-      end
-      """
+      property("maintains structural invariants", lib, bindings, """
+      result = #{ctx.call}
+      # TODO: Replace with checks specific to your function's output structure.
+      #{assert_stmt(lib, "result != nil")}
+      """),
+      property("deterministic output", lib, bindings, """
+      result1 = #{ctx.call}
+      result2 = #{ctx.call}
+      #{assert_stmt(lib, "result1 == result2")}
+      """)
     ]
   end
 
-  defp generate_for_pattern(:transformation, module_name, func_name, :stream_data) do
+  defp generate_for_pattern(:validation, ctx) do
+    lib = ctx.library
+    bindings = arity_bindings(ctx)
+
     [
-      """
-      property "maintains structural invariants" do
-        check all input <- term() do
-          result = #{module_name}.#{func_name}(input)
-          # Add your invariant checks here
-          assert valid_structure?(result)
-        end
-      end
-      """,
-      """
-      property "handles edge cases" do
-        check all input <- one_of([constant(nil), constant([]), constant(%{}), term()]) do
-          result = #{module_name}.#{func_name}(input)
-          assert is_valid_result?(result)
-        end
-      end
-      """
+      property("returns boolean", lib, bindings, """
+      result = #{ctx.call}
+      #{assert_stmt(lib, "is_boolean(result)")}
+      """),
+      property("deterministic validation", lib, bindings, """
+      #{assert_stmt(lib, "#{ctx.call} == #{ctx.call}")}
+      """)
     ]
   end
 
-  defp generate_for_pattern(:transformation, module_name, func_name, :proper) do
+  defp generate_for_pattern(:algebraic, ctx) do
+    lib = ctx.library
+
+    if ctx.arity == 2 do
+      bindings_3 =
+        gen_bindings(lib, [{"a", gen(lib, :term)}, {"b", gen(lib, :term)}, {"c", gen(lib, :term)}])
+
+      bindings_2 =
+        gen_bindings(lib, [{"a", gen(lib, :term)}, {"b", gen(lib, :term)}])
+
+      m = ctx.module
+      f = ctx.func
+
+      [
+        property("associativity", lib, bindings_3, """
+        #{assert_stmt(lib, "#{m}.#{f}(#{m}.#{f}(a, b), c) == #{m}.#{f}(a, #{m}.#{f}(b, c))")}
+        """),
+        property("commutativity", lib, bindings_2, """
+        # NOTE: Remove this test if the operation is not commutative.
+        #{assert_stmt(lib, "#{m}.#{f}(a, b) == #{m}.#{f}(b, a)")}
+        """),
+        property("identity element", lib, gen_binding(lib, "a", gen(lib, :term)), """
+        # TODO: Replace with the actual identity value for this operation.
+        identity = nil
+        #{assert_stmt(lib, "#{m}.#{f}(a, identity) == a")}
+        """)
+      ]
+    else
+      # Non-binary algebraic operations: just suggest determinism
+      bindings = arity_bindings(ctx)
+
+      [
+        property("deterministic result", lib, bindings, """
+        #{assert_stmt(lib, "#{ctx.call} == #{ctx.call}")}
+        """)
+      ]
+    end
+  end
+
+  defp generate_for_pattern(:encoder_decoder, ctx) do
+    lib = ctx.library
+    m = ctx.module
+    f = to_string(ctx.func)
+
+    # Determine the inverse function name from the actual function name
+    inverse = inverse_name(f)
+
     [
-      """
-      property "maintains structural invariants" do
-        forall input <- term() do
-          result = #{module_name}.#{func_name}(input)
-          # Add your invariant checks here
-          valid_structure?(result)
+      property("#{f}/#{inverse} round-trip", lib, gen_binding(lib, "data", gen(lib, :term)), """
+      # TODO: Replace term() with a generator that produces valid input for #{f}.
+      encoded = #{m}.#{f}(data)
+      #{assert_stmt(lib, "#{m}.#{inverse}(encoded) == {:ok, data}")}
+      """),
+      property(
+        "#{inverse} handles invalid input gracefully",
+        lib,
+        gen_binding(lib, "invalid", gen(lib, :binary)),
+        """
+        case #{m}.#{inverse}(invalid) do
+          {:ok, _} -> true
+          {:error, _} -> true
         end
-      end
-      """,
-      """
-      property "handles edge cases" do
-        forall input <- oneof([nil, [], %{}, term()]) do
-          result = #{module_name}.#{func_name}(input)
-          is_valid_result?(result)
-        end
-      end
-      """
+        """
+      )
     ]
   end
 
-  defp generate_for_pattern(:validation, module_name, func_name, :stream_data) do
+  defp generate_for_pattern(:parser, ctx) do
+    lib = ctx.library
+    bindings = gen_binding(lib, "input", gen(lib, :string))
+
     [
-      """
-      property "consistent validation results" do
-        check all input <- term() do
-          result1 = #{module_name}.#{func_name}(input)
-          result2 = #{module_name}.#{func_name}(input)
-          assert result1 == result2
-        end
+      property("parse returns expected structure", lib, bindings, """
+      case #{ctx.module}.#{ctx.func}(input) do
+        {:ok, result} ->
+          # TODO: Add structural assertions for parsed output.
+          #{assert_stmt(lib, "result != nil")}
+        {:error, _} -> true
       end
-      """,
-      """
-      property "boolean return type" do
-        check all input <- term() do
-          result = #{module_name}.#{func_name}(input)
-          assert is_boolean(result)
-        end
-      end
-      """
+      """),
+      property("deterministic parsing", lib, bindings, """
+      #{assert_stmt(lib, "#{ctx.module}.#{ctx.func}(input) == #{ctx.module}.#{ctx.func}(input)")}
+      """)
     ]
   end
 
-  defp generate_for_pattern(:validation, module_name, func_name, :proper) do
+  defp generate_for_pattern(:numeric, ctx) do
+    lib = ctx.library
+    bindings = gen_binding(lib, "n", gen(lib, :number))
+
+    call_with_n = ctx.call |> replace_first_arg("n")
+
     [
-      """
-      property "consistent validation results" do
-        forall input <- term() do
-          result1 = #{module_name}.#{func_name}(input)
-          result2 = #{module_name}.#{func_name}(input)
-          result1 == result2
-        end
-      end
-      """,
-      """
-      property "boolean return type" do
-        forall input <- term() do
-          result = #{module_name}.#{func_name}(input)
-          is_boolean(result)
-        end
-      end
-      """
+      property("returns numeric result", lib, bindings, """
+      result = #{call_with_n}
+      #{assert_stmt(lib, "is_number(result)")}
+      """),
+      property(
+        "handles zero and negative inputs",
+        lib,
+        gen_binding(lib, "n", gen(lib, :number)),
+        """
+        # Verify the function doesn't crash on edge-case numeric inputs.
+        _ = #{call_with_n}
+        """
+      )
     ]
   end
 
-  defp generate_for_pattern(:algebraic, module_name, func_name, :stream_data) do
-    [
-      """
-      property "associativity" do
-        check all a <- term(), b <- term(), c <- term() do
-          assert #{module_name}.#{func_name}(#{module_name}.#{func_name}(a, b), c) ==
-                 #{module_name}.#{func_name}(a, #{module_name}.#{func_name}(b, c))
-        end
+  defp generate_for_pattern(_type, _ctx), do: []
+
+  # --- Helpers ---
+
+  defp property(name, library, bindings, body) do
+    body = body |> String.trim_trailing() |> indent(6)
+
+    """
+    property "#{name}" do
+      #{prop_header(library, bindings)}
+    #{body}
       end
-      """,
-      """
-      property "commutativity" do
-        check all a <- term(), b <- term() do
-          assert #{module_name}.#{func_name}(a, b) == #{module_name}.#{func_name}(b, a)
-        end
-      end
-      """,
-      """
-      property "identity element" do
-        check all a <- term() do
-          identity = identity_value()
-          assert #{module_name}.#{func_name}(a, identity) == a
-        end
-      end
-      """
-    ]
+    end
+    """
   end
 
-  defp generate_for_pattern(:algebraic, module_name, func_name, :proper) do
-    [
-      """
-      property "associativity" do
-        forall {a, b, c} <- {term(), term(), term()} do
-          #{module_name}.#{func_name}(#{module_name}.#{func_name}(a, b), c) ==
-            #{module_name}.#{func_name}(a, #{module_name}.#{func_name}(b, c))
-        end
-      end
-      """,
-      """
-      property "commutativity" do
-        forall {a, b} <- {term(), term()} do
-          #{module_name}.#{func_name}(a, b) == #{module_name}.#{func_name}(b, a)
-        end
-      end
-      """,
-      """
-      property "identity element" do
-        forall a <- term() do
-          identity = identity_value()
-          #{module_name}.#{func_name}(a, identity) == a
-        end
-      end
-      """
-    ]
+  defp indent(text, n) do
+    pad = String.duplicate(" ", n)
+
+    text
+    |> String.split("\n")
+    |> Enum.map_join("\n", fn
+      "" -> ""
+      line -> pad <> line
+    end)
   end
 
-  defp generate_for_pattern(:encoder_decoder, module_name, _func_name, :stream_data) do
-    [
-      """
-      property "encode/decode round-trip" do
-        check all data <- term() do
-          encoded = #{module_name}.encode(data)
-          assert #{module_name}.decode(encoded) == {:ok, data}
-        end
-      end
-      """,
-      """
-      property "decode handles invalid input" do
-        check all invalid <- binary() do
-          case #{module_name}.decode(invalid) do
-            {:ok, _} -> true
-            {:error, _} -> true
-            _ -> false
-          end
-        end
-      end
-      """
-    ]
+  defp replace_first_arg(call, new_arg) do
+    # Replace the first argument in a call string like "Module.func(input)" -> "Module.func(n)"
+    Regex.replace(~r/\(([^,\)]+)/, call, "(#{new_arg}", global: false)
   end
 
-  defp generate_for_pattern(:encoder_decoder, module_name, _func_name, :proper) do
-    [
-      """
-      property "encode/decode round-trip" do
-        forall data <- term() do
-          encoded = #{module_name}.encode(data)
-          #{module_name}.decode(encoded) == {:ok, data}
-        end
-      end
-      """,
-      """
-      property "decode handles invalid input" do
-        forall invalid <- binary() do
-          case #{module_name}.decode(invalid) do
-            {:ok, _} -> true
-            {:error, _} -> true
-            _ -> false
-          end
-        end
-      end
-      """
-    ]
-  end
+  @inverse_pairs %{
+    "encode" => "decode",
+    "decode" => "encode",
+    "serialize" => "deserialize",
+    "deserialize" => "serialize",
+    "pack" => "unpack",
+    "unpack" => "pack",
+    "marshal" => "unmarshal",
+    "unmarshal" => "marshal",
+    "compress" => "compress",
+    "decompress" => "compress",
+    "encrypt" => "decrypt",
+    "decrypt" => "encrypt"
+  }
 
-  defp generate_for_pattern(:parser, module_name, func_name, :stream_data) do
-    [
-      """
-      property "parse returns expected structure" do
-        check all input <- string(:alphanumeric) do
-          case #{module_name}.#{func_name}(input) do
-            {:ok, result} -> assert valid_parsed_structure?(result)
-            {:error, _} -> true
-          end
-        end
-      end
-      """,
-      """
-      property "parse/format round-trip" do
-        check all data <- valid_data_generator() do
-          formatted = #{module_name}.format(data)
-          assert #{module_name}.#{func_name}(formatted) == {:ok, data}
-        end
-      end
-      """
-    ]
-  end
+  defp inverse_name(func_name) do
+    name = to_string(func_name)
+    segments = String.split(name, "_")
 
-  defp generate_for_pattern(:parser, module_name, func_name, :proper) do
-    [
-      """
-      property "parse returns expected structure" do
-        forall input <- list(range(?a, ?z)) do
-          case #{module_name}.#{func_name}(to_string(input)) do
-            {:ok, result} -> valid_parsed_structure?(result)
-            {:error, _} -> true
-          end
-        end
-      end
-      """,
-      """
-      property "parse/format round-trip" do
-        forall data <- valid_data_generator() do
-          formatted = #{module_name}.format(data)
-          #{module_name}.#{func_name}(formatted) == {:ok, data}
-        end
-      end
-      """
-    ]
-  end
+    # Try to find the inverse by checking each segment
+    case Enum.find(segments, &Map.has_key?(@inverse_pairs, &1)) do
+      nil ->
+        # Fallback: just suggest a decode-like name
+        "decode"
 
-  defp generate_for_pattern(:numeric, module_name, func_name, :stream_data) do
-    [
-      """
-      property "handles numeric boundaries" do
-        check all n <- one_of([integer(), float()]) do
-          result = #{module_name}.#{func_name}(n)
-          assert is_number(result)
-        end
-      end
-      """,
-      """
-      property "handles special numeric values" do
-        check all n <- member_of([0, -1, 1, :math.pi(), -:math.pi()]) do
-          result = #{module_name}.#{func_name}(n)
-          assert is_valid_numeric?(result)
-        end
-      end
-      """
-    ]
+      segment ->
+        inverse_segment = @inverse_pairs[segment]
+        String.replace(name, segment, inverse_segment, global: false)
+    end
   end
-
-  defp generate_for_pattern(:numeric, module_name, func_name, :proper) do
-    [
-      """
-      property "handles numeric boundaries" do
-        forall n <- oneof([integer(), float()]) do
-          result = #{module_name}.#{func_name}(n)
-          is_number(result)
-        end
-      end
-      """,
-      """
-      property "handles special numeric values" do
-        forall n <- oneof([0, -1, 1]) do
-          result = #{module_name}.#{func_name}(n)
-          is_valid_numeric?(result)
-        end
-      end
-      """
-    ]
-  end
-
-  defp generate_for_pattern(_type, _module_name, _func_name, _library), do: []
 end

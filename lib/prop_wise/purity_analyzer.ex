@@ -61,10 +61,7 @@ defmodule PropWise.PurityAnalyzer do
     {:spawn, 1},
     {:spawn, 3},
     {:spawn_link, 1},
-    {:spawn_link, 3},
-    {:put_in, 2},
-    {:update_in, 2},
-    {:get_and_update_in, 2}
+    {:spawn_link, 3}
   ]
 
   @doc """
@@ -81,6 +78,8 @@ defmodule PropWise.PurityAnalyzer do
       analyze(function_info)
       analyze(function_info, side_effect_calls: [{MyModule, :impure_func, 1}])
   """
+  @spec analyze(PropWise.FunctionInfo.t() | map(), keyword()) ::
+          {:pure, []} | {:impure, [tuple()]}
   def analyze(function_info, opts \\ []) do
     side_effect_calls = Keyword.get(opts, :side_effect_calls, @default_side_effect_calls)
 
@@ -101,6 +100,7 @@ defmodule PropWise.PurityAnalyzer do
 
   Accepts the same options as `analyze/2`.
   """
+  @spec pure?(PropWise.FunctionInfo.t() | map(), keyword()) :: boolean()
   def pure?(function_info, opts \\ []) do
     match?({:pure, _}, analyze(function_info, opts))
   end
@@ -165,11 +165,6 @@ defmodule PropWise.PurityAnalyzer do
   # Detect receive blocks
   defp detect_side_effect({:receive, _meta, _}, _side_effect_calls, _side_effect_functions) do
     {:receive_block}
-  end
-
-  # Detect bang operator (convention for side effects)
-  defp detect_side_effect({:!, _meta, _}, _side_effect_calls, _side_effect_functions) do
-    {:bang_operator}
   end
 
   defp detect_side_effect(_node, _side_effect_calls, _side_effect_functions), do: nil

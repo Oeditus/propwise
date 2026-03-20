@@ -6,6 +6,7 @@ defmodule PropWise.Reporter do
   @doc """
   Formats analysis results and returns as a string.
   """
+  @spec format_report(PropWise.Analyzer.analysis_result(), keyword()) :: String.t()
   def format_report(analysis_result, opts \\ []) do
     format = Keyword.get(opts, :format, :text)
 
@@ -19,12 +20,14 @@ defmodule PropWise.Reporter do
   @doc """
   Prints analysis results in a human-readable format.
   """
+  @spec print_report(PropWise.Analyzer.analysis_result(), keyword()) :: :ok
   def print_report(analysis_result, opts \\ []) do
     analysis_result
     |> format_report(opts)
     |> IO.puts()
   end
 
+  # credo:disable-for-lines:70
   defp format_text_report(%{
          candidates: candidates,
          inverse_pairs: inverse_pairs,
@@ -51,7 +54,9 @@ defmodule PropWise.Reporter do
       end
 
     lines =
-      if not Enum.empty?(inverse_pairs) do
+      if Enum.empty?(inverse_pairs) do
+        lines
+      else
         pair_lines =
           for pair <- inverse_pairs do
             {mod, name1, arity1} = pair.forward
@@ -70,8 +75,6 @@ defmodule PropWise.Reporter do
             "Inverse Function Pairs Detected:",
             String.duplicate("-", 80)
           ] ++ pair_lines
-      else
-        lines
       end
 
     lines =
@@ -104,26 +107,26 @@ defmodule PropWise.Reporter do
     ]
 
     lines =
-      if not Enum.empty?(candidate.patterns) do
+      if Enum.empty?(candidate.patterns) do
+        lines
+      else
         pattern_lines =
           for {type, reason} <- candidate.patterns do
             "    - #{format_pattern(type)}: #{reason}"
           end
 
         lines ++ ["  Patterns:"] ++ pattern_lines
-      else
-        lines
       end
 
-    if not Enum.empty?(candidate.suggestions) do
+    if Enum.empty?(candidate.suggestions) do
+      lines
+    else
       suggestion_lines =
         for suggestion <- candidate.suggestions do
           "    - #{suggestion}"
         end
 
       lines ++ ["  Testing suggestions:"] ++ suggestion_lines
-    else
-      lines
     end
   end
 

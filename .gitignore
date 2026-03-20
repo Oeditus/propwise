@@ -28,6 +28,7 @@ propwise-*.tar
 /.elixir-tools/
 /.elixir_ls/
 /.erl.history/
+.tool-versions
 
 # Dialyzer PLT files
 /priv/plts/
