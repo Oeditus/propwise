@@ -121,16 +121,18 @@ defmodule PropWise.PurityAnalyzer do
 
   # Detect module calls like Module.function(args)
   defp detect_side_effect(
-         {{:., _meta, [{:__aliases__, _meta2, module_parts}, function]}, _meta3, args},
+         {{:., _meta, [{:__aliases__, _meta_aliases, module_parts}, function]}, _meta_ctx, args},
          side_effect_calls,
          _side_effect_functions
        )
        when is_list(args) do
-    module = Module.concat(module_parts)
-    arity = length(args)
-
-    if side_effect_call?(module, function, arity, side_effect_calls) do
+    with true <- Enum.all?(module_parts, &is_atom/1),
+         module <- Module.concat(module_parts),
+         arity <- length(args),
+         true <- side_effect_call?(module, function, arity, side_effect_calls) do
       {:module_call, module, function, arity}
+    else
+      _ -> nil
     end
   end
 
