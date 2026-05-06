@@ -98,7 +98,7 @@ defmodule PropWise.PatternDetector do
   # Detect validation functions based on Elixir naming conventions.
   # Relies on the strong convention of `?` suffix for predicates.
   defp detect_validation(function_info, _body_string) do
-    name = to_string(function_info.name)
+    name = safe_to_string(function_info.name)
 
     cond do
       String.ends_with?(name, "?") ->
@@ -120,7 +120,7 @@ defmodule PropWise.PatternDetector do
 
   # Detect algebraic structures (operations with associativity, commutativity, etc.)
   defp detect_algebraic_structure(function_info, _body_string) do
-    name = to_string(function_info.name)
+    name = safe_to_string(function_info.name)
     segments = String.split(name, "_")
 
     algebraic_operations = ~w[merge concat combine union intersect compose append]
@@ -132,7 +132,7 @@ defmodule PropWise.PatternDetector do
 
   # Detect encoder/decoder functions
   defp detect_encoder_decoder(function_info, _body_string) do
-    name = to_string(function_info.name)
+    name = safe_to_string(function_info.name)
     segments = String.split(name, "_")
 
     encoding_segments = ~w[encode decode serialize deserialize]
@@ -151,7 +151,7 @@ defmodule PropWise.PatternDetector do
 
   # Detect parser functions
   defp detect_parser(function_info, body_string) do
-    name = to_string(function_info.name)
+    name = safe_to_string(function_info.name)
     segments = String.split(name, "_")
 
     cond do
@@ -280,7 +280,7 @@ defmodule PropWise.PatternDetector do
   # For prefix patterns ending in "_" (like "to_"), match as prefix only.
   # For other patterns, match as exact name or exact segment after splitting by "_".
   defp name_matches?(name, pattern) do
-    name_str = to_string(name)
+    name_str = safe_to_string(name)
 
     if String.ends_with?(pattern, "_") do
       String.starts_with?(name_str, pattern)
@@ -290,5 +290,11 @@ defmodule PropWise.PatternDetector do
         |> String.split("_")
         |> Enum.any?(&(&1 == pattern))
     end
+  end
+
+  defp safe_to_string(anything) do
+    if String.Chars.impl_for(anything),
+      do: to_string(anything),
+      else: ""
   end
 end

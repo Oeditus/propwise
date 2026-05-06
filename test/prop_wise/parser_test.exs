@@ -32,4 +32,45 @@ defmodule PropWise.ParserTest do
       assert [] = Parser.parse_file("/nonexistent/file.ex")
     end
   end
+
+  describe "parse_project/2 umbrella support" do
+    setup do
+      base = "/tmp/propwise_umbrella_#{System.unique_integer([:positive])}"
+      app_lib = Path.join([base, "apps", "my_app", "lib"])
+      File.mkdir_p!(app_lib)
+
+      File.write!(Path.join(app_lib, "my_mod.ex"), """
+      defmodule MyApp.MyMod do
+        def greet(name), do: "Hello, " <> name
+      end
+      """)
+
+      on_exit(fn -> File.rm_rf!(base) end)
+      %{base: base}
+    end
+
+    test "auto-detects umbrella project when no lib/ at root", %{base: base} do
+      functions = Parser.parse_project(base)
+      assert [%{name: :greet, module: "MyApp.MyMod"}] = functions
+    end
+
+    test "prefers lib/ when both lib/ and apps/ exist", %{base: base} do
+      lib_path = Path.join(base, "lib")
+      File.mkdir_p!(lib_path)
+
+      File.write!(Path.join(lib_path, "root_mod.ex"), """
+      defmodule RootMod do
+        def root_fn(x), do: x
+      end
+      """)
+
+      functions = Parser.parse_project(base)
+      assert [%{name: :root_fn, module: "RootMod"}] = functions
+    end
+
+    test "respects explicit analyze_paths over umbrella detection", %{base: base} do
+      functions = Parser.parse_project(base, analyze_paths: ["apps/my_app/lib"])
+      assert [%{name: :greet}] = functions
+    end
+  end
 end

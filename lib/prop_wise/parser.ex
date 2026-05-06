@@ -34,7 +34,9 @@ defmodule PropWise.Parser do
   defp find_elixir_files(path, opts) do
     analyze_paths = Keyword.get(opts, :analyze_paths) || Config.analyze_paths(path)
 
-    analyze_paths
+    effective_paths = maybe_expand_umbrella(path, analyze_paths)
+
+    effective_paths
     |> Enum.flat_map(fn relative_path ->
       full_path = Path.join(path, relative_path)
 
@@ -46,6 +48,24 @@ defmodule PropWise.Parser do
       end
     end)
   end
+
+  # When analyze_paths is the default ["lib"] and no lib/ exists at the root,
+  # but an apps/ directory does, expand to apps/*/lib automatically.
+  defp maybe_expand_umbrella(path, ["lib"] = _default_paths) do
+    lib_path = Path.join(path, "lib")
+    apps_path = Path.join(path, "apps")
+
+    if not File.dir?(lib_path) and File.dir?(apps_path) do
+      apps_path
+      |> File.ls!()
+      |> Enum.map(&Path.join("apps", Path.join(&1, "lib")))
+      |> Enum.filter(&File.dir?(Path.join(path, &1)))
+    else
+      ["lib"]
+    end
+  end
+
+  defp maybe_expand_umbrella(_path, custom_paths), do: custom_paths
 
   defp extract_functions(ast, file_path) do
     {_ast, functions} =

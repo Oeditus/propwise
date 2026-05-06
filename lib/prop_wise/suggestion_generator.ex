@@ -43,6 +43,8 @@ defmodule PropWise.SuggestionGenerator do
 
   defp format_call(module, func, args) do
     "#{module}.#{func}(#{Enum.join(args, ", ")})"
+  rescue
+    Protocol.UndefinedError -> "???"
   end
 
   # --- Library-specific syntax helpers ---
