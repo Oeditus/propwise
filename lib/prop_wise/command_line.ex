@@ -12,6 +12,7 @@ defmodule PropWise.CommandLine do
       format: :string,
       output: :string,
       library: :string,
+      files: :string,
       no_fail: :boolean,
       help: :boolean
     ],
@@ -27,7 +28,18 @@ defmodule PropWise.CommandLine do
   @spec parse_args([String.t()]) :: {keyword(), [String.t()]}
   def parse_args(args) do
     {opts, paths, _} = OptionParser.parse(args, @parse_opts)
-    {opts, paths}
+
+    case paths do
+      [] ->
+        {opts, ["."]}
+
+      [path] ->
+        {opts, [path]}
+
+      multiple_paths ->
+        opts = Keyword.put_new(opts, :files, multiple_paths)
+        {opts, ["."]}
+    end
   end
 
   @spec run_analysis(String.t(), keyword(), keyword()) ::
@@ -35,7 +47,7 @@ defmodule PropWise.CommandLine do
   def run_analysis(path, opts, callbacks \\ []) do
     do_run_analysis(path, opts, callbacks)
   catch
-    {:invalid_path, p} -> {:error, "#{p} is not a valid directory"}
+    {:invalid_path, p} -> {:error, "#{p} is not a valid file or directory"}
   end
 
   defp do_run_analysis(path, opts, callbacks) do
@@ -43,8 +55,13 @@ defmodule PropWise.CommandLine do
     error_fn = Keyword.get(callbacks, :error, &default_error/1)
     info_fn = Keyword.get(callbacks, :info, &default_info/1)
 
-    unless File.dir?(path) do
-      error_fn.("Error: #{path} is not a valid directory")
+    files_opt = Keyword.get(opts, :files)
+
+    valid_target? =
+      File.dir?(path) or File.regular?(path) or not is_nil(files_opt)
+
+    unless valid_target? do
+      error_fn.("Error: #{path} is not a valid file or directory")
       throw({:invalid_path, path})
     end
 
@@ -59,6 +76,9 @@ defmodule PropWise.CommandLine do
 
     analyzer_opts =
       if library, do: Keyword.put(analyzer_opts, :library, library), else: analyzer_opts
+
+    analyzer_opts =
+      if files_opt, do: Keyword.put(analyzer_opts, :files, files_opt), else: analyzer_opts
 
     result = Analyzer.analyze_project(path, analyzer_opts)
 
@@ -86,16 +106,17 @@ defmodule PropWise.CommandLine do
     PropWise - Property-Based Testing Candidate Detector
 
     Usage:
-      propwise [OPTIONS] [PATH]
+      propwise [OPTIONS] [PATH_OR_FILES...]
 
     Arguments:
-      [PATH]                  Path to the Elixir project to analyze (default: .)
+      [PATH_OR_FILES]         Path to project directory, single file, or list of files
 
     Options:
       -m, --min-score NUM     Minimum score for candidates (default: 4)
       -f, --format FORMAT     Output format: text or json (default: text)
       -o, --output FILE       Write output to file instead of stdout
       -l, --library LIB       Property testing library: stream_data or proper (default: stream_data)
+      --files FILES           Comma-separated list of specific files to analyze (ideal for PRs)
       --no-fail               Exit with code 0 even when suggestions are found
       -h, --help              Show this help message
 
@@ -103,7 +124,8 @@ defmodule PropWise.CommandLine do
       propwise
       propwise --min-score 5
       propwise --format json
-      propwise --library proper
+      propwise --files lib/my_app/user.ex,lib/my_app/auth.ex
+      propwise lib/my_app/user.ex
       propwise ./my_project
 
     The tool analyzes your Elixir codebase to find functions that are good

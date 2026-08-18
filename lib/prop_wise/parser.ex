@@ -6,15 +6,15 @@ defmodule PropWise.Parser do
   alias PropWise.{Config, FunctionInfo}
 
   @doc """
-  Parses all `.ex` files in the given directory recursively.
+  Parses Elixir files in the given path or file list.
   Returns a list of `PropWise.FunctionInfo` structs.
 
-  Accepts an optional `analyze_paths` list to avoid re-loading config.
+  Accepts optional `analyze_paths` or `files` options.
   """
   @spec parse_project(String.t(), keyword()) :: [FunctionInfo.t()]
   def parse_project(path, opts \\ []) do
     path
-    |> find_elixir_files(opts)
+    |> resolve_files(opts)
     |> Enum.flat_map(&parse_file/1)
   end
 
@@ -29,6 +29,49 @@ defmodule PropWise.Parser do
     else
       _ -> []
     end
+  end
+
+  defp resolve_files(path, opts) do
+    cond do
+      files_opt = Keyword.get(opts, :files) ->
+        parse_files_list(path, files_opt)
+
+      File.regular?(path) ->
+        [path]
+
+      File.dir?(path) ->
+        find_elixir_files(path, opts)
+
+      true ->
+        []
+    end
+  end
+
+  defp parse_files_list(base_path, files) when is_list(files) do
+    Enum.flat_map(files, &parse_files_list(base_path, &1))
+  end
+
+  defp parse_files_list(base_path, files_str) when is_binary(files_str) do
+    files_str
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.flat_map(fn file ->
+      joined = Path.join(base_path, file)
+
+      target =
+        cond do
+          File.exists?(joined) -> joined
+          File.exists?(file) -> file
+          true -> joined
+        end
+
+      cond do
+        File.regular?(target) -> [target]
+        File.dir?(target) -> Path.wildcard(Path.join(target, "**/*.ex"))
+        true -> []
+      end
+    end)
   end
 
   defp find_elixir_files(path, opts) do

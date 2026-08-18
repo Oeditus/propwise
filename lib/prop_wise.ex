@@ -38,13 +38,15 @@ defmodule PropWise do
   alias PropWise.{Analyzer, Reporter}
 
   @doc """
-  Analyzes an Elixir project for property-based testing candidates.
+  Analyzes an Elixir project or subset of files for property-based testing candidates.
 
   ## Parameters
 
-    - `path` - Path to the Elixir project directory
+    - `path` - Path to the Elixir project directory or a single Elixir file
     - `opts` - Keyword list of options:
-    - `:min_score` - Minimum score for candidates (default: 4)
+      - `:min_score` - Minimum score for candidates (default: 4)
+      - `:files` - List of specific file paths or comma-separated string of files to analyze (ideal for PR analysis)
+      - `:library` - Property testing library to target (`:stream_data` or `:proper`)
 
   ## Returns
 
@@ -58,6 +60,8 @@ defmodule PropWise do
   ## Examples
 
       result = PropWise.analyze(".")
+      result = PropWise.analyze("./lib/my_app/user.ex")
+      result = PropWise.analyze(".", files: ["lib/my_app/user.ex", "lib/my_app/auth.ex"])
       result = PropWise.analyze("./lib", min_score: 5)
   """
   @spec analyze(String.t(), keyword()) :: PropWise.Analyzer.analysis_result()

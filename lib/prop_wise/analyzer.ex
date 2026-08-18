@@ -32,8 +32,8 @@ defmodule PropWise.Analyzer do
     min_score = Keyword.get(opts, :min_score, 4)
     library = Keyword.get(opts, :library) || Map.get(config, :library, :stream_data)
     analyze_paths = Map.get(config, :analyze_paths, ["lib"])
-
-    functions = Parser.parse_project(path, analyze_paths: analyze_paths)
+    parser_opts = Keyword.put_new(opts, :analyze_paths, analyze_paths)
+    functions = Parser.parse_project(path, parser_opts)
 
     all_scored_candidates =
       functions

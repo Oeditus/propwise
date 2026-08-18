@@ -128,5 +128,29 @@ defmodule PropWise.AnalyzerTest do
 
       assert low.candidates_count >= high.candidates_count
     end
+
+    test "analyzes single file path and file subset options" do
+      test_dir = "/tmp/propwise_subset_test_#{System.unique_integer([:positive])}"
+      lib_dir = Path.join(test_dir, "lib")
+      File.mkdir_p!(lib_dir)
+
+      file1 = Path.join(lib_dir, "mod_a.ex")
+      file2 = Path.join(lib_dir, "mod_b.ex")
+
+      File.write!(file1, "defmodule ModA do def fn_a(x), do: Enum.map(x, & &1) end")
+      File.write!(file2, "defmodule ModB do def fn_b(x), do: Enum.filter(x, & &1) end")
+
+      # Single file path
+      result1 = Analyzer.analyze_project(file1, min_score: 0)
+      assert result1.total_functions == 1
+      assert Enum.any?(result1.candidates, &(&1.name == :fn_a))
+
+      # Subset option via :files
+      result2 = Analyzer.analyze_project(test_dir, files: ["lib/mod_b.ex"], min_score: 0)
+      assert result2.total_functions == 1
+      assert Enum.any?(result2.candidates, &(&1.name == :fn_b))
+
+      File.rm_rf!(test_dir)
+    end
   end
 end
