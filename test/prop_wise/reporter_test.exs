@@ -46,6 +46,7 @@ defmodule PropWise.ReporterTest do
 
       assert report =~ "MyModule.my_func/1"
       assert report =~ "Score:** 5"
+      assert report =~ "- **Testing suggestions:**"
     end
 
     test "shows coverage percentage" do

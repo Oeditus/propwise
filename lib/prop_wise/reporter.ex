@@ -134,7 +134,7 @@ defmodule PropWise.Reporter do
           Enum.map_join(candidate.suggestions, "\n\n", &format_code_snippet/1)
 
         code_block = "```elixir\n# #{library} example\n#{suggestions_code}\n```"
-        Enum.concat(lines, ["**Testing suggestions:**", code_block])
+        Enum.concat(lines, ["- **Testing suggestions:**", code_block])
       end
 
     Enum.join(lines, "\n") <> "\n"
