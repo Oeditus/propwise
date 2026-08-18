@@ -103,14 +103,32 @@ defmodule PropWise.Analyzer do
   end
 
   defp complex_enough?(function_info) do
-    body_string = Macro.to_string(function_info.body)
+    meta_ast = PurityAnalyzer.ensure_meta_ast(function_info.body)
+
+    body_string =
+      try do
+        Metastatic.to_string(meta_ast)
+      rescue
+        _ -> Macro.to_string(function_info.body)
+      end
+
     line_count = body_string |> String.split("\n") |> length()
 
-    line_count > 3 or has_multiple_clauses?(function_info.body)
+    line_count > 3 or has_multiple_clauses?(meta_ast, function_info.body)
   end
 
-  defp has_multiple_clauses?(body) do
-    match?({:case, _, _}, body) or match?({:cond, _, _}, body) or match?({:with, _, _}, body)
+  defp has_multiple_clauses?(meta_ast, legacy_body) do
+    has_meta_clauses =
+      Metastatic.postwalker(meta_ast)
+      |> Enum.any?(fn
+        {:pattern_match, _, _} -> true
+        {:conditional, _, _} -> true
+        {:function_call, meta, _} -> meta[:name] in ["case", "cond", "with", "if"]
+        _ -> false
+      end)
+
+    has_meta_clauses or match?({:case, _, _}, legacy_body) or match?({:cond, _, _}, legacy_body) or
+      match?({:with, _, _}, legacy_body)
   end
 
   defp generate_suggestions(patterns, function_info, library) do

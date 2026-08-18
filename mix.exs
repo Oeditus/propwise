@@ -46,6 +46,7 @@ defmodule PropWise.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:metastatic, "~> 0.29"},
       # Runtime dependency needed for JSON output
       {:jason, "~> 1.4"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},

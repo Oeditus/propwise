@@ -1,6 +1,6 @@
 defmodule PropWise.Parser do
   @moduledoc """
-  Parses Elixir source files and extracts function definitions with their ASTs.
+  Parses Elixir source files and extracts function definitions with their ASTs using Metastatic.
   """
 
   alias PropWise.{Config, FunctionInfo}
@@ -24,8 +24,8 @@ defmodule PropWise.Parser do
   @spec parse_file(String.t()) :: [FunctionInfo.t()]
   def parse_file(file_path) do
     with {:ok, content} <- File.read(file_path),
-         {:ok, ast} <- Code.string_to_quoted(content) do
-      extract_functions(ast, file_path)
+         {:ok, meta_ast} <- Metastatic.quote(content, :elixir) do
+      extract_functions(meta_ast, file_path)
     else
       _ -> []
     end
@@ -67,63 +67,65 @@ defmodule PropWise.Parser do
 
   defp maybe_expand_umbrella(_path, custom_paths), do: custom_paths
 
-  defp extract_functions(ast, file_path) do
-    {_ast, functions} =
-      Macro.prewalk(ast, [], fn
-        {:defmodule, _meta, [module_alias, [do: block]]} = node, acc ->
-          module_name = extract_module_name(module_alias)
-          module_functions = extract_module_functions(block, module_name, file_path)
-          {node, acc ++ module_functions}
-
-        node, acc ->
-          {node, acc}
-      end)
-
-    functions
-  end
-
-  defp extract_module_functions(block, module_name, file_path) do
-    {_ast, functions} =
-      Macro.prewalk(block, [], fn
-        {:def, meta, [{name, _meta2, args}, body]} = node, acc when is_list(args) ->
-          function_info = %FunctionInfo{
-            module: module_name,
-            name: name,
-            arity: length(args),
-            args: args,
-            body: body,
-            file: file_path,
-            line: meta[:line],
-            type: :public
-          }
-
-          {node, [function_info | acc]}
-
-        {:defp, meta, [{name, _meta2, args}, body]} = node, acc when is_list(args) ->
-          function_info = %FunctionInfo{
-            module: module_name,
-            name: name,
-            arity: length(args),
-            args: args,
-            body: body,
-            file: file_path,
-            line: meta[:line],
-            type: :private
-          }
-
-          {node, [function_info | acc]}
-
-        node, acc ->
-          {node, acc}
-      end)
+  defp extract_functions(meta_ast, file_path) do
+    {_ast, {_, functions}} =
+      Metastatic.traverse(
+        meta_ast,
+        {nil, []},
+        fn node, {current_mod, acc} -> process_node(node, current_mod, acc, file_path) end,
+        fn node, acc -> {node, acc} end
+      )
 
     Enum.reverse(functions)
   end
 
-  defp extract_module_name({:__aliases__, _meta, parts}) do
-    Enum.map_join(parts, ".", &to_string/1)
+  defp process_node({:container, meta, _children} = node, _current_mod, acc, _file_path) do
+    mod_name = meta[:name] || meta[:module] || "Unknown"
+    {node, {mod_name, acc}}
   end
 
-  defp extract_module_name(atom) when is_atom(atom), do: to_string(atom)
-  defp extract_module_name(_), do: "Unknown"
+  defp process_node({:function_def, meta, children} = node, current_mod, acc, file_path) do
+    info = build_function_info(meta, children, current_mod, file_path)
+    {node, {current_mod, [info | acc]}}
+  end
+
+  defp process_node(node, current_mod, acc, _file_path) do
+    {node, {current_mod, acc}}
+  end
+
+  defp build_function_info(meta, children, current_mod, file_path) do
+    name_atom = parse_name(meta[:name])
+    arity = meta[:arity] || count_params(meta[:params])
+    visibility = parse_visibility(meta)
+    body = wrap_body(children)
+
+    %FunctionInfo{
+      module: current_mod || "Unknown",
+      name: name_atom,
+      arity: arity,
+      args: meta[:params] || [],
+      body: body,
+      file: file_path,
+      line: meta[:line] || 1,
+      type: visibility
+    }
+  end
+
+  defp parse_name(s) when is_binary(s), do: String.to_atom(s)
+  defp parse_name(a) when is_atom(a), do: a
+  defp parse_name(_), do: :unknown
+
+  defp parse_visibility(meta) do
+    if meta[:visibility] == :private or meta[:type] == :private do
+      :private
+    else
+      :public
+    end
+  end
+
+  defp wrap_body([single]), do: single
+  defp wrap_body(multiple), do: {:block, [], multiple}
+
+  defp count_params(params) when is_list(params), do: length(params)
+  defp count_params(_), do: 0
 end

@@ -1,29 +1,68 @@
 defmodule PropWise.PatternDetector do
   @moduledoc """
-  Detects patterns in function ASTs that indicate good property-based testing candidates.
+  Detects patterns in function MetaASTs that indicate good property-based testing candidates.
   """
+
+  alias PropWise.PurityAnalyzer
 
   @doc """
   Analyzes a function and returns detected patterns that suggest property-based testing.
   """
   @spec detect_patterns(PropWise.FunctionInfo.t() | map()) :: [PropWise.Candidate.pattern()]
   def detect_patterns(function_info) do
-    # Compute the stringified body once and thread it through all detectors.
-    body_string = Macro.to_string(function_info.body)
+    meta_ast = PurityAnalyzer.ensure_meta_ast(function_info.body)
+    body_string = to_body_string(meta_ast)
 
     []
     |> maybe_add_pattern(
       :collection_operation,
-      &detect_collection_operation/2,
+      &detect_collection_operation/3,
       function_info,
+      meta_ast,
       body_string
     )
-    |> maybe_add_pattern(:transformation, &detect_transformation/2, function_info, body_string)
-    |> maybe_add_pattern(:validation, &detect_validation/2, function_info, body_string)
-    |> maybe_add_pattern(:algebraic, &detect_algebraic_structure/2, function_info, body_string)
-    |> maybe_add_pattern(:encoder_decoder, &detect_encoder_decoder/2, function_info, body_string)
-    |> maybe_add_pattern(:parser, &detect_parser/2, function_info, body_string)
-    |> maybe_add_pattern(:numeric, &detect_numeric_algorithm/2, function_info, body_string)
+    |> maybe_add_pattern(
+      :transformation,
+      &detect_transformation/3,
+      function_info,
+      meta_ast,
+      body_string
+    )
+    |> maybe_add_pattern(
+      :validation,
+      &detect_validation/3,
+      function_info,
+      meta_ast,
+      body_string
+    )
+    |> maybe_add_pattern(
+      :algebraic,
+      &detect_algebraic_structure/3,
+      function_info,
+      meta_ast,
+      body_string
+    )
+    |> maybe_add_pattern(
+      :encoder_decoder,
+      &detect_encoder_decoder/3,
+      function_info,
+      meta_ast,
+      body_string
+    )
+    |> maybe_add_pattern(
+      :parser,
+      &detect_parser/3,
+      function_info,
+      meta_ast,
+      body_string
+    )
+    |> maybe_add_pattern(
+      :numeric,
+      &detect_numeric_algorithm/3,
+      function_info,
+      meta_ast,
+      body_string
+    )
   end
 
   @doc """
@@ -58,15 +97,32 @@ defmodule PropWise.PatternDetector do
     end
   end
 
-  defp maybe_add_pattern(patterns, type, detector_fn, function_info, body_string) do
-    case detector_fn.(function_info, body_string) do
+  defp maybe_add_pattern(patterns, type, detector_fn, function_info, meta_ast, body_string) do
+    case detector_fn.(function_info, meta_ast, body_string) do
       nil -> patterns
       reason -> [{type, reason} | patterns]
     end
   end
 
   # Detect collection operations (map, filter, sort, group)
-  defp detect_collection_operation(_function_info, body_string) do
+  defp detect_collection_operation(_info, meta_ast, body_string) do
+    has_collection_node =
+      Metastatic.postwalker(meta_ast)
+      |> Enum.any?(fn
+        {:collection_op, _, _} ->
+          true
+
+        {:comprehension, _, _} ->
+          true
+
+        {:function_call, meta, _} ->
+          name = to_string(meta[:name] || "")
+          String.starts_with?(name, "Enum.") or String.starts_with?(name, "Stream.")
+
+        _ ->
+          false
+      end)
+
     patterns = [
       {~r/Enum\.(map|filter|sort|group|reduce|flat_map|chunk)/,
        "Uses Enum collection operations"},
@@ -75,19 +131,23 @@ defmodule PropWise.PatternDetector do
       {~r/for .+ <- .+/, "List comprehension"}
     ]
 
-    Enum.find_value(patterns, fn {regex, reason} ->
-      if Regex.match?(regex, body_string), do: reason
-    end)
+    if has_collection_node do
+      "Uses Enum collection operations"
+    else
+      Enum.find_value(patterns, fn {regex, reason} ->
+        if Regex.match?(regex, body_string), do: reason
+      end)
+    end
   end
 
   # Detect data transformations via struct/map manipulation.
   # Deliberately excludes bare pipelines and `with` blocks which are too common.
-  defp detect_transformation(function_info, _body_string) do
+  defp detect_transformation(_function_info, meta_ast, _body_string) do
     cond do
-      has_struct_manipulation?(function_info.body) ->
+      has_struct_manipulation?(meta_ast) ->
         "Struct transformation"
 
-      has_map_manipulation?(function_info.body) ->
+      has_map_manipulation?(meta_ast) ->
         "Map transformation"
 
       true ->
@@ -97,7 +157,7 @@ defmodule PropWise.PatternDetector do
 
   # Detect validation functions based on Elixir naming conventions.
   # Relies on the strong convention of `?` suffix for predicates.
-  defp detect_validation(function_info, _body_string) do
+  defp detect_validation(function_info, _meta_ast, _body_string) do
     name = safe_to_string(function_info.name)
 
     cond do
@@ -119,7 +179,7 @@ defmodule PropWise.PatternDetector do
   end
 
   # Detect algebraic structures (operations with associativity, commutativity, etc.)
-  defp detect_algebraic_structure(function_info, _body_string) do
+  defp detect_algebraic_structure(function_info, _meta_ast, _body_string) do
     name = safe_to_string(function_info.name)
     segments = String.split(name, "_")
 
@@ -131,7 +191,7 @@ defmodule PropWise.PatternDetector do
   end
 
   # Detect encoder/decoder functions
-  defp detect_encoder_decoder(function_info, _body_string) do
+  defp detect_encoder_decoder(function_info, _meta_ast, _body_string) do
     name = safe_to_string(function_info.name)
     segments = String.split(name, "_")
 
@@ -150,15 +210,25 @@ defmodule PropWise.PatternDetector do
   end
 
   # Detect parser functions
-  defp detect_parser(function_info, body_string) do
+  defp detect_parser(function_info, meta_ast, body_string) do
     name = safe_to_string(function_info.name)
     segments = String.split(name, "_")
+
+    has_regex =
+      Metastatic.postwalker(meta_ast)
+      |> Enum.any?(fn
+        {:function_call, meta, _} ->
+          meta[:name] in ["Regex.run", "Regex.scan", "Regex.match?"]
+
+        _ ->
+          false
+      end)
 
     cond do
       "parse" in segments ->
         "Parser function"
 
-      String.contains?(body_string, ["Regex.run", "Regex.scan", "Regex.match?"]) ->
+      has_regex or String.contains?(body_string, ["Regex.run", "Regex.scan", "Regex.match?"]) ->
         "String parsing"
 
       true ->
@@ -167,15 +237,15 @@ defmodule PropWise.PatternDetector do
   end
 
   # Detect numeric algorithms via AST analysis instead of regex on stringified code.
-  defp detect_numeric_algorithm(function_info, _body_string) do
+  defp detect_numeric_algorithm(_function_info, meta_ast, _body_string) do
     cond do
-      has_math_module_calls?(function_info.body) ->
+      has_math_module_calls?(meta_ast) ->
         "Math module operations"
 
-      has_numeric_kernel_calls?(function_info.body) ->
+      has_numeric_kernel_calls?(meta_ast) ->
         "Numeric operations"
 
-      has_significant_arithmetic?(function_info.body) ->
+      has_significant_arithmetic?(meta_ast) ->
         "Arithmetic operations"
 
       true ->
@@ -186,94 +256,85 @@ defmodule PropWise.PatternDetector do
   # --- AST helper functions ---
 
   @map_write_fns [
-    :put,
-    :put_new,
-    :put_new_lazy,
-    :merge,
-    :update,
-    :update!,
-    :delete,
-    :drop,
-    :take,
-    :replace!,
-    :split
+    "Map.put",
+    "Map.put_new",
+    "Map.put_new_lazy",
+    "Map.merge",
+    "Map.update",
+    "Map.update!",
+    "Map.delete",
+    "Map.drop",
+    "Map.take",
+    "Map.replace!",
+    "Map.split"
   ]
 
-  defp has_struct_manipulation?(ast) do
-    {_ast, found} =
-      Macro.prewalk(ast, false, fn
-        {:%{}, _meta, fields} = node, _acc when is_list(fields) ->
-          has_struct = Keyword.has_key?(fields, :__struct__)
-          {node, has_struct}
+  defp has_struct_manipulation?(meta_ast) do
+    Metastatic.postwalker(meta_ast)
+    |> Enum.any?(fn
+      {:function_call, meta, _} ->
+        meta[:name] == "%"
 
-        node, acc ->
-          {node, acc}
-      end)
+      {:map, _, fields} when is_list(fields) ->
+        Enum.any?(fields, fn
+          {:pair, _, [{:literal, _, :__struct__}, _]} -> true
+          _ -> false
+        end)
 
-    found
+      _ ->
+        false
+    end)
   end
 
-  defp has_map_manipulation?(ast) do
-    {_ast, found} =
-      Macro.prewalk(ast, false, fn
-        # Struct syntax: %Struct{...}
-        {:%, _meta, _} = node, _ ->
-          {node, true}
-
-        # Map update syntax: %{map | key: val}
-        {:%{}, _meta, [{:|, _, _} | _]} = node, _ ->
-          {node, true}
-
-        # Map write calls: Map.put, Map.merge, etc. (excludes reads like Map.get)
-        {{:., _, [{:__aliases__, _, [:Map]}, fn_name]}, _, _} = node, _
-        when fn_name in @map_write_fns ->
-          {node, true}
-
-        node, acc ->
-          {node, acc}
-      end)
-
-    found
+  defp has_map_manipulation?(meta_ast) do
+    Metastatic.postwalker(meta_ast)
+    |> Enum.any?(fn
+      {:function_call, meta, _} -> meta[:name] in @map_write_fns
+      _ -> false
+    end)
   end
 
-  defp has_math_module_calls?(ast) do
-    {_ast, found} =
-      Macro.prewalk(ast, false, fn
-        {{:., _, [:math, _]}, _, _} = node, _ -> {node, true}
-        node, acc -> {node, acc}
-      end)
+  defp has_math_module_calls?(meta_ast) do
+    Metastatic.postwalker(meta_ast)
+    |> Enum.any?(fn
+      {:function_call, meta, _} ->
+        name = to_string(meta[:name] || "")
+        String.starts_with?(name, "math.") or String.starts_with?(name, ":math.")
 
-    found
+      _ ->
+        false
+    end)
   end
 
-  @numeric_kernel_fns [:div, :rem, :abs, :round, :floor, :ceil, :trunc]
+  @numeric_kernel_fns ["div", "rem", "abs", "round", "floor", "ceil", "trunc"]
 
-  defp has_numeric_kernel_calls?(ast) do
-    {_ast, found} =
-      Macro.prewalk(ast, false, fn
-        {fn_name, _, args} = node, acc when is_atom(fn_name) and is_list(args) ->
-          {node, acc or fn_name in @numeric_kernel_fns}
-
-        node, acc ->
-          {node, acc}
-      end)
-
-    found
+  defp has_numeric_kernel_calls?(meta_ast) do
+    Metastatic.postwalker(meta_ast)
+    |> Enum.any?(fn
+      {:binary_op, meta, _} -> meta[:operator] in [:div, :rem]
+      {:function_call, meta, _} -> meta[:name] in @numeric_kernel_fns
+      _ -> false
+    end)
   end
 
-  defp has_significant_arithmetic?(ast) do
-    # Count actual binary arithmetic operator nodes in the AST.
-    # Require at least 2 to filter out incidental uses like `length(x) + 1`.
-    {_ast, count} =
-      Macro.prewalk(ast, 0, fn
-        {op, _, [_left, _right]} = node, count when op in [:+, :-, :*, :/] ->
-          {node, count + 1}
+  defp has_significant_arithmetic?(meta_ast) do
+    count =
+      Metastatic.postwalker(meta_ast)
+      |> Enum.count(fn
+        {:binary_op, meta, [_left, _right]} ->
+          meta[:category] == :arithmetic or meta[:operator] in [:+, :-, :*, :/]
 
-        node, count ->
-          {node, count}
+        _ ->
+          false
       end)
 
     count >= 2
+  end
+
+  defp to_body_string(body) do
+    Metastatic.to_string(body)
+  rescue
+    _ -> Macro.to_string(body)
   end
 
   # Match function names against inverse pair patterns.

@@ -50,6 +50,17 @@ defmodule PropWise.PurityAnalyzerTest do
       assert {:impure, side_effects} = PurityAnalyzer.analyze(function_info)
       assert match?([{:module_call, GenServer, :call, 2}], side_effects)
     end
+
+    test "detects impure side effects directly from Metastatic MetaAST with op_kind" do
+      meta_ast =
+        {:function_call, [name: "Repo.get", op_kind: [domain: :db, operation: :retrieve]],
+         [{:variable, [], "User"}, {:variable, [], "id"}]}
+
+      function_info = %{body: meta_ast}
+
+      assert {:impure, side_effects} = PurityAnalyzer.analyze(function_info)
+      assert match?([{:semantic_op, :db, :retrieve}], side_effects)
+    end
   end
 
   describe "pure?/1" do

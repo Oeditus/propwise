@@ -26,6 +26,10 @@ defmodule PropWise.ParserTest do
       assert [_, _] = functions
       assert Enum.any?(functions, fn f -> f.name == :public_function and f.arity == 2 end)
       assert Enum.any?(functions, fn f -> f.name == :private_function and f.arity == 1 end)
+
+      # Verify Metastatic MetaAST format
+      pub_fn = Enum.find(functions, &(&1.name == :public_function))
+      assert match?({:binary_op, meta, _} when is_list(meta), pub_fn.body)
     end
 
     test "returns empty list for non-existent file" do
