@@ -5,105 +5,106 @@ defmodule PropWise.Reporter do
 
   @doc """
   Formats analysis results and returns as a string.
+  Formats: `:text` / `:markdown` (default) or `:json`.
   """
   @spec format_report(PropWise.Analyzer.analysis_result(), keyword()) :: String.t()
   def format_report(analysis_result, opts \\ []) do
     format = Keyword.get(opts, :format, :text)
 
     case format do
-      :text -> format_text_report(analysis_result)
-      :json -> format_json_report(analysis_result)
-      _ -> format_text_report(analysis_result)
+      f when f in [:markdown, :text, "text", "markdown"] ->
+        format_markdown_report(analysis_result, opts)
+
+      f when f in [:json, "json"] ->
+        format_json_report(analysis_result)
+
+      _ ->
+        format_markdown_report(analysis_result, opts)
     end
   end
 
   @doc """
-  Prints analysis results in a human-readable format.
+  Prints analysis results.
+  Renders Markdown with Marcli for terminal output unless JSON format is specified.
   """
   @spec print_report(PropWise.Analyzer.analysis_result(), keyword()) :: :ok
   def print_report(analysis_result, opts \\ []) do
-    analysis_result
-    |> format_report(opts)
-    |> IO.puts()
+    format = Keyword.get(opts, :format, :text)
+
+    if format in [:json, "json"] do
+      IO.puts(format_json_report(analysis_result))
+    else
+      markdown = format_markdown_report(analysis_result, opts)
+      IO.puts(Marcli.render(markdown))
+    end
   end
 
-  # credo:disable-for-lines:70
-  defp format_text_report(%{
-         candidates: candidates,
-         inverse_pairs: inverse_pairs,
-         total_functions: total,
-         candidates_count: count,
-         dropped_count: dropped
-       }) do
-    lines = [
-      "\n" <> String.duplicate("=", 80),
-      "PropWise Analysis Report",
-      String.duplicate("=", 80),
-      "\nSummary:",
-      "  Total functions analyzed: #{total}",
-      "  Property test candidates: #{count}",
-      "  Candidates dropped (below threshold): #{dropped}"
+  defp format_markdown_report(
+         %{
+           candidates: candidates,
+           inverse_pairs: inverse_pairs,
+           total_functions: total,
+           candidates_count: count,
+           dropped_count: dropped
+         },
+         opts
+       ) do
+    library = Keyword.get(opts, :library, :stream_data)
+
+    summary_lines = [
+      "# PropWise Analysis Report\n",
+      "## Summary",
+      "- **Total functions analyzed:** #{total}",
+      "- **Property test candidates:** #{count}",
+      "- **Candidates dropped (below threshold):** #{dropped}"
     ]
 
-    lines =
+    summary_lines =
       if count > 0 do
         percentage = Float.round(count / total * 100, 1)
-        lines ++ ["  Coverage: #{percentage}%"]
+        # credo:disable-for-next-line Credo.Check.Refactor.AppendSingleItem
+        summary_lines ++ ["- **Coverage:** #{percentage}%"]
       else
-        lines
+        summary_lines
       end
 
-    lines =
+    pairs_section =
       if Enum.empty?(inverse_pairs) do
-        lines
+        []
       else
         pair_lines =
           for pair <- inverse_pairs do
             {mod, name1, arity1} = pair.forward
             {_mod, name2, arity2} = pair.inverse
 
-            [
-              "\n  #{mod}.#{name1}/#{arity1} <-> #{name2}/#{arity2}",
-              "  Suggestion: #{pair.suggestion}"
-            ]
+            "- `#{mod}.#{name1}/#{arity1}` <-> `#{name2}/#{arity2}`\n  - **Suggestion:** #{pair.suggestion}"
           end
-          |> List.flatten()
 
-        lines ++
-          [
-            "\n" <> String.duplicate("-", 80),
-            "Inverse Function Pairs Detected:",
-            String.duplicate("-", 80)
-          ] ++ pair_lines
+        ["\n## Inverse Function Pairs Detected\n" | pair_lines]
       end
 
-    lines =
+    candidates_section =
       if Enum.empty?(candidates) do
-        lines ++ ["\nNo strong candidates found. Consider lowering the min_score threshold."]
+        ["\nNo strong candidates found. Consider lowering the min_score threshold."]
       else
-        candidate_lines =
+        candidate_blocks =
           candidates
           |> Enum.take(20)
-          |> Enum.flat_map(&format_candidate/1)
+          |> Enum.map(&format_candidate_markdown(&1, library))
 
-        lines ++
-          [
-            "\n" <> String.duplicate("-", 80),
-            "Top Candidates (sorted by score):",
-            String.duplicate("-", 80)
-          ] ++ candidate_lines
+        ["\n## Top Candidates (sorted by score)\n" | candidate_blocks]
       end
 
-    lines = lines ++ ["\n" <> String.duplicate("=", 80), ""]
-    Enum.join(lines, "\n")
+    (summary_lines ++ pairs_section ++ candidates_section)
+    |> Enum.join("\n")
   end
 
-  defp format_candidate(candidate) do
+  defp format_candidate_markdown(candidate, library) do
     lines = [
-      "\n#{candidate.module}.#{candidate.name}/#{candidate.arity}",
-      "  Score: #{candidate.score}",
-      "  Location: #{relative_path(candidate.file)}:#{candidate.line}",
-      "  Type: #{candidate.type}"
+      "### #{candidate.module}.#{candidate.name}/#{candidate.arity}",
+      "**Score:** #{candidate.score}",
+      "**Location:** #{relative_path(candidate.file)}:#{candidate.line}",
+      "**Type:** #{candidate.type}"
     ]
 
     lines =
@@ -112,22 +113,22 @@ defmodule PropWise.Reporter do
       else
         pattern_lines =
           for {type, reason} <- candidate.patterns do
-            "    - #{format_pattern(type)}: #{reason}"
+            "  - #{format_pattern(type)}: #{reason}"
           end
 
-        lines ++ ["  Patterns:"] ++ pattern_lines
+        Enum.concat([lines, ["**Patterns:**"], pattern_lines])
       end
 
-    if Enum.empty?(candidate.suggestions) do
-      lines
-    else
-      suggestion_lines =
-        for suggestion <- candidate.suggestions do
-          "    - #{suggestion}"
-        end
+    lines =
+      if Enum.empty?(candidate.suggestions) do
+        lines
+      else
+        suggestions_code = Enum.map_join(candidate.suggestions, "\n\n", &String.trim/1)
+        code_block = "```elixir\n# #{library} example\n#{suggestions_code}\n```"
+        Enum.concat(lines, ["**Testing suggestions:**", code_block])
+      end
 
-      lines ++ ["  Testing suggestions:"] ++ suggestion_lines
-    end
+    Enum.join(lines, "\n") <> "\n"
   end
 
   defp format_json_report(analysis_result) do

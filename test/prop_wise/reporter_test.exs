@@ -36,8 +36,8 @@ defmodule PropWise.ReporterTest do
       report = Reporter.format_report(sample_result())
 
       assert report =~ "PropWise Analysis Report"
-      assert report =~ "Total functions analyzed: 10"
-      assert report =~ "Property test candidates: 0"
+      assert report =~ "Total functions analyzed:** 10"
+      assert report =~ "Property test candidates:** 0"
     end
 
     test "includes candidate details" do
@@ -45,14 +45,14 @@ defmodule PropWise.ReporterTest do
       report = Reporter.format_report(result)
 
       assert report =~ "MyModule.my_func/1"
-      assert report =~ "Score: 5"
+      assert report =~ "Score:** 5"
     end
 
     test "shows coverage percentage" do
       result = sample_result(candidates: [sample_candidate()], total: 10)
       report = Reporter.format_report(result)
 
-      assert report =~ "Coverage: 10.0%"
+      assert report =~ "Coverage:** 10.0%"
     end
 
     test "handles empty candidates" do
@@ -81,7 +81,7 @@ defmodule PropWise.ReporterTest do
       result = sample_result(dropped: 5)
       report = Reporter.format_report(result)
 
-      assert report =~ "Candidates dropped (below threshold): 5"
+      assert report =~ "Candidates dropped (below threshold):** 5"
     end
   end
 

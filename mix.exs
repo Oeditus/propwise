@@ -47,6 +47,7 @@ defmodule PropWise.MixProject do
   defp deps do
     [
       {:metastatic, "~> 0.29"},
+      {:marcli, "~> 0.4"},
       # Runtime dependency needed for JSON output
       {:jason, "~> 1.4"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
