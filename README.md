@@ -169,6 +169,78 @@ PropWise.print_report(result)
 PropWise.print_report(result, format: :json)
 ```
 
+### Analyzing a Subset of Files (for Pull Requests)
+
+PropWise supports analyzing specific files or file subsets. This is ideal for PR workflows to focus analysis only on modified or newly added code.
+
+1. **Single File**:
+   ```bash
+   mix propwise lib/my_app/user.ex
+   # or
+   ./propwise lib/my_app/user.ex
+   ```
+
+2. **Comma-Separated File List (`--files` flag)**:
+   ```bash
+   mix propwise --files "lib/my_app/user.ex,lib/my_app/auth.ex"
+   ```
+
+3. **Multiple File Path Arguments**:
+   ```bash
+   mix propwise lib/my_app/user.ex lib/my_app/auth.ex
+   ```
+
+### CI / PR Integration
+
+You can easily integrate PropWise into your CI pipeline to run property testing candidate detection on Pull Requests:
+
+#### Bash / CI Pipeline Script
+
+```bash
+# Get modified or added .ex files relative to main branch
+CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep '\.ex$' | paste -sd,)
+
+if [ -n "$CHANGED_FILES" ]; then
+  mix propwise --no-fail --files "$CHANGED_FILES"
+else
+  echo "No Elixir files modified in this PR."
+fi
+```
+
+#### GitHub Actions Example (`.github/workflows/propwise.yml`)
+
+```yaml
+name: PropWise PR Analysis
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  analyze-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: '1.18'
+          otp-version: '27'
+
+      - run: mix deps.get
+
+      - name: Run PropWise on PR Changed Files
+        run: |
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep '\.ex$' | paste -sd,)
+          if [ -n "$CHANGED_FILES" ]; then
+            mix propwise --no-fail --files "$CHANGED_FILES"
+          else
+            echo "No Elixir files modified in this PR."
+          fi
+```
+
 ## Example Output
 
 ```
