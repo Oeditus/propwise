@@ -25,17 +25,24 @@ defmodule PropWise.Reporter do
 
   @doc """
   Prints analysis results.
-  Renders Markdown with Marcli for terminal output unless JSON format is specified.
+  Renders Markdown with Marcli for terminal output when format is `:text` (default).
+  Outputs raw Markdown when format is `:markdown`.
+  Outputs JSON when format is `:json`.
   """
   @spec print_report(PropWise.Analyzer.analysis_result(), keyword()) :: :ok
   def print_report(analysis_result, opts \\ []) do
     format = Keyword.get(opts, :format, :text)
 
-    if format in [:json, "json"] do
-      IO.puts(format_json_report(analysis_result))
-    else
-      markdown = format_markdown_report(analysis_result, opts)
-      IO.puts(Marcli.render(markdown))
+    case format do
+      f when f in [:json, "json"] ->
+        IO.puts(format_json_report(analysis_result))
+
+      f when f in [:markdown, "markdown"] ->
+        IO.puts(format_markdown_report(analysis_result, opts))
+
+      _ ->
+        markdown = format_markdown_report(analysis_result, opts)
+        IO.puts(Marcli.render(markdown))
     end
   end
 
@@ -102,9 +109,9 @@ defmodule PropWise.Reporter do
   defp format_candidate_markdown(candidate, library) do
     lines = [
       "### #{candidate.module}.#{candidate.name}/#{candidate.arity}",
-      "**Score:** #{candidate.score}",
-      "**Location:** #{relative_path(candidate.file)}:#{candidate.line}",
-      "**Type:** #{candidate.type}"
+      "- **Score:** #{candidate.score}",
+      "- **Location:** #{relative_path(candidate.file)}:#{candidate.line}",
+      "- **Type:** #{candidate.type}"
     ]
 
     lines =
@@ -116,7 +123,7 @@ defmodule PropWise.Reporter do
             "  - #{format_pattern(type)}: #{reason}"
           end
 
-        Enum.concat([lines, ["**Patterns:**"], pattern_lines])
+        Enum.concat([lines, ["- **Patterns:**"], pattern_lines])
       end
 
     lines =
