@@ -26,6 +26,7 @@ defmodule PropWise.Analyzer do
   """
   @spec analyze_project(String.t(), keyword()) :: analysis_result()
   def analyze_project(path, opts \\ []) do
+    Application.ensure_all_started(:metastatic)
     # Load config once and thread through to avoid double Code.eval_file
     config = Config.load(path)
     min_score = Keyword.get(opts, :min_score, 4)
