@@ -255,26 +255,23 @@ defmodule PropWise.SuggestionGenerator do
   # --- Helpers ---
 
   defp property(name, library, bindings, body) do
-    body = body |> String.trim_trailing() |> indent(6)
-
-    """
+    snippet = """
     property "#{name}" do
       #{prop_header(library, bindings)}
     #{body}
       end
     end
     """
+
+    format_code(snippet)
   end
 
-  defp indent(text, n) do
-    pad = String.duplicate(" ", n)
-
-    text
-    |> String.split("\n")
-    |> Enum.map_join("\n", fn
-      "" -> ""
-      line -> pad <> line
-    end)
+  defp format_code(snippet) do
+    snippet
+    |> Code.format_string!()
+    |> IO.iodata_to_binary()
+  rescue
+    _ -> String.trim(snippet)
   end
 
   defp replace_first_arg(call, new_arg) do

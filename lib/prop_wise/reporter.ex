@@ -130,7 +130,9 @@ defmodule PropWise.Reporter do
       if Enum.empty?(candidate.suggestions) do
         lines
       else
-        suggestions_code = Enum.map_join(candidate.suggestions, "\n\n", &String.trim/1)
+        suggestions_code =
+          Enum.map_join(candidate.suggestions, "\n\n", &format_code_snippet/1)
+
         code_block = "```elixir\n# #{library} example\n#{suggestions_code}\n```"
         Enum.concat(lines, ["**Testing suggestions:**", code_block])
       end
@@ -200,5 +202,13 @@ defmodule PropWise.Reporter do
     else
       path
     end
+  end
+
+  defp format_code_snippet(snippet) do
+    snippet
+    |> Code.format_string!()
+    |> IO.iodata_to_binary()
+  rescue
+    _ -> String.trim(snippet)
   end
 end
