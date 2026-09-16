@@ -28,6 +28,8 @@ defmodule PropWise.Candidate do
           purity: purity(),
           patterns: [pattern()],
           score: non_neg_integer(),
+          rank: pos_integer() | nil,
+          inverse_pair: boolean(),
           suggestions: [String.t()]
         }
 
@@ -53,6 +55,8 @@ defmodule PropWise.Candidate do
     :purity,
     :patterns,
     :score,
-    :suggestions
+    :rank,
+    :suggestions,
+    inverse_pair: false
   ]
 end

@@ -46,6 +46,8 @@ defmodule PropWise.Reporter do
     end
   end
 
+  @default_display_limit 3
+
   defp format_markdown_report(
          %{
            candidates: candidates,
@@ -57,6 +59,8 @@ defmodule PropWise.Reporter do
          opts
        ) do
     library = Keyword.get(opts, :library, :stream_data)
+    show_all = Keyword.get(opts, :show_all, false)
+    limit = if show_all, do: :infinity, else: Keyword.get(opts, :limit, @default_display_limit)
 
     summary_lines = [
       "# PropWise Analysis Report\n",
@@ -75,40 +79,65 @@ defmodule PropWise.Reporter do
         summary_lines
       end
 
-    pairs_section =
-      if Enum.empty?(inverse_pairs) do
-        []
-      else
-        pair_lines =
-          for pair <- inverse_pairs do
-            {mod, name1, arity1} = pair.forward
-            {_mod, name2, arity2} = pair.inverse
-
-            "- `#{mod}.#{name1}/#{arity1}` <-> `#{name2}/#{arity2}`\n  - **Suggestion:** #{pair.suggestion}"
-          end
-
-        ["\n## Inverse Function Pairs Detected\n" | pair_lines]
-      end
+    pairs_section = format_pairs_section(inverse_pairs, limit)
 
     candidates_section =
       if Enum.empty?(candidates) do
         ["\nNo strong candidates found. Consider lowering the min_score threshold."]
       else
-        candidate_blocks =
-          candidates
-          |> Enum.take(20)
-          |> Enum.map(&format_candidate_markdown(&1, library))
+        shown = take_limit(candidates, limit)
+        hidden = length(candidates) - length(shown)
 
-        ["\n## Top Candidates (sorted by score)\n" | candidate_blocks]
+        candidate_blocks =
+          Enum.map(shown, &format_candidate_markdown(&1, library))
+
+        more_line =
+          if hidden > 0 do
+            ["\n_… and #{hidden} more (run with `--show-all` to see all findings)._"]
+          else
+            []
+          end
+
+        ["\n## Candidates (ranked)\n" | candidate_blocks ++ more_line]
       end
 
     (summary_lines ++ pairs_section ++ candidates_section)
     |> Enum.join("\n")
   end
 
+  defp format_pairs_section(inverse_pairs, limit) do
+    if Enum.empty?(inverse_pairs) do
+      []
+    else
+      shown = take_limit(inverse_pairs, limit)
+      hidden = length(inverse_pairs) - length(shown)
+
+      pair_lines =
+        for {pair, index} <- Enum.with_index(shown, 1) do
+          {mod, name1, arity1} = pair.forward
+          {_mod, name2, arity2} = pair.inverse
+
+          "#{index}. `#{mod}.#{name1}/#{arity1}` <-> `#{name2}/#{arity2}`\n  - **Suggestion:** #{pair.suggestion}"
+        end
+
+      more_line =
+        if hidden > 0 do
+          ["\n_… and #{hidden} more inverse pairs (run with `--show-all` to see all)._"]
+        else
+          []
+        end
+
+      ["\n## Inverse Function Pairs Detected\n" | pair_lines ++ more_line]
+    end
+  end
+
+  defp take_limit(list, :infinity), do: list
+  defp take_limit(list, limit) when is_integer(limit), do: Enum.take(list, limit)
+
   defp format_candidate_markdown(candidate, library) do
     lines = [
-      "### #{candidate.module}.#{candidate.name}/#{candidate.arity}",
+      "### #{format_rank(candidate)}#{candidate.module}.#{candidate.name}/#{candidate.arity}",
+      "- **Rank:** #{format_rank_number(candidate)}",
       "- **Score:** #{candidate.score}",
       "- **Location:** #{relative_path(candidate.file)}:#{candidate.line}",
       "- **Type:** #{candidate.type}"
@@ -160,6 +189,8 @@ defmodule PropWise.Reporter do
       line: candidate.line,
       type: candidate.type,
       score: candidate.score,
+      rank: Map.get(candidate, :rank),
+      inverse_pair: Map.get(candidate, :inverse_pair, false),
       patterns:
         Enum.map(candidate.patterns, fn {type, reason} -> %{type: type, reason: reason} end),
       suggestions: candidate.suggestions
@@ -193,6 +224,21 @@ defmodule PropWise.Reporter do
   defp format_pattern(:parser), do: "Parser"
   defp format_pattern(:numeric), do: "Numeric Algorithm"
   defp format_pattern(other), do: to_string(other)
+
+  # Heading prefix, e.g. "1. " so the rank is visible at a glance.
+  defp format_rank(candidate) do
+    case Map.get(candidate, :rank) do
+      nil -> ""
+      rank -> "#{rank}. "
+    end
+  end
+
+  defp format_rank_number(candidate) do
+    case Map.get(candidate, :rank) do
+      nil -> "n/a"
+      rank -> "##{rank}"
+    end
+  end
 
   defp relative_path(path) do
     cwd = File.cwd!()

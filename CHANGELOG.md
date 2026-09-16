@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Ranked findings: every candidate now gets a 1-based rank, and inverse-pair members
+  (e.g. `encode`/`decode`) always rank above non-pair candidates
+- `--show-all` CLI flag (and `:show_all` library option) to display every finding
+- `:limit` library option to override the default display limit of 3
+
+### Changed
+- Reports now show only the top 3 candidates and top 3 inverse pairs by default,
+  followed by a `… and N more` note; `--show-all` shows everything (still ranked)
+- Candidate headings and metadata now include the rank (`Rank: #N`)
+- JSON output now includes `rank` and `inverse_pair` per candidate
+
 …
 
 ## [0.3.0] - 2026-03-20

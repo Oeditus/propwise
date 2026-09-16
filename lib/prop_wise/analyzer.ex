@@ -42,13 +42,17 @@ defmodule PropWise.Analyzer do
     candidates =
       all_scored_candidates
       |> Enum.filter(fn result -> result.score >= min_score end)
-      |> Enum.sort_by(& &1.score, :desc)
 
     dropped_count =
       all_scored_candidates
       |> Enum.count(fn result -> result.score > 0 and result.score < min_score end)
 
     inverse_pairs = PatternDetector.find_inverse_pairs(functions)
+
+    candidates =
+      candidates
+      |> mark_inverse_pair_members(inverse_pairs)
+      |> rank_candidates()
 
     %{
       candidates: candidates,
@@ -81,6 +85,36 @@ defmodule PropWise.Analyzer do
       score: score,
       suggestions: generate_suggestions(patterns, function_info, library)
     }
+  end
+
+  # Marks candidates that participate in a detected inverse function pair.
+  defp mark_inverse_pair_members(candidates, inverse_pairs) do
+    pair_members =
+      inverse_pairs
+      |> Enum.flat_map(fn pair -> [pair.forward, pair.inverse] end)
+      |> MapSet.new(fn {module, name, arity} -> {module, name, arity} end)
+
+    Enum.map(candidates, fn candidate ->
+      member? = MapSet.member?(pair_members, {candidate.module, candidate.name, candidate.arity})
+      %{candidate | inverse_pair: member?}
+    end)
+  end
+
+  # Ranks candidates so the most actionable findings come first:
+  #   1. inverse-pair members (round-trip properties are the highest-value tests)
+  #   2. higher score
+  #   3. public before private
+  #   4. stable alphabetical tie-break
+  # Assigns a 1-based `rank` to every candidate.
+  defp rank_candidates(candidates) do
+    candidates
+    |> Enum.sort_by(fn candidate ->
+      {if(candidate.inverse_pair, do: 0, else: 1), -candidate.score,
+       if(candidate.type == :public, do: 0, else: 1), candidate.module, candidate.name,
+       candidate.arity}
+    end)
+    |> Enum.with_index(1)
+    |> Enum.map(fn {candidate, rank} -> %{candidate | rank: rank} end)
   end
 
   defp calculate_score({:impure, _}, _patterns, _function_info), do: 0

@@ -327,6 +327,22 @@ In addition to scoring individual functions, PropWise detects inverse function p
 
 These pairs are reported separately with suggestions to test round-trip properties.
 
+## Ranking
+
+Candidates are ranked (1-based) so the most actionable findings come first. The
+sort order is:
+
+1. **Inverse-pair members** — functions participating in a detected inverse pair
+   (e.g. `encode`/`decode`) always rank above non-pair candidates, regardless of
+   score, because round-trip properties are the highest-value tests.
+2. **Higher score** — among candidates of the same pair-membership class.
+3. **Public before private**.
+4. A stable alphabetical tie-break (module, name, arity).
+
+By default only the top 3 ranked candidates and top 3 inverse pairs are shown,
+followed by a `… and N more` note. Use `--show-all` (CLI) or `show_all: true`
+(library) to display every finding — still ranked.
+
 ## Limitations
 
 ### False Positives

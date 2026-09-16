@@ -77,12 +77,18 @@ defmodule PropWise do
     - `analysis_result` - Result from `analyze/2`
     - `opts` - Keyword list of options:
       - `:format` - Output format: `:text` or `:json` (default: `:text`)
+      - `:show_all` - When `false` (default), only the top 3 ranked candidates
+        and inverse pairs are shown, followed by a "N more" note. When `true`,
+        every finding is shown (still ranked).
+      - `:limit` - Override the default display limit (default: `3`). Ignored
+        when `:show_all` is `true`.
 
   ## Examples
 
       result = PropWise.analyze(".")
       PropWise.print_report(result)
       PropWise.print_report(result, format: :json)
+      PropWise.print_report(result, show_all: true)
   """
   @spec print_report(PropWise.Analyzer.analysis_result(), keyword()) :: :ok
   def print_report(analysis_result, opts \\ []) do

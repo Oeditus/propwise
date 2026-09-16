@@ -12,6 +12,7 @@ defmodule Mix.Tasks.Propwise do
     * `-f, --format FORMAT` - Output format: text or json (default: text)
     * `-o, --output FILE` - Write output to file instead of stdout
     * `-l, --library LIB` - Property testing library: stream_data or proper (default: stream_data)
+    * `--show-all` - Show all findings instead of the top 3 (still ranked) (default: false)
     * `--no-fail` - Exit with code 0 even when suggestions are found (default: false)
     * `-h, --help` - Show help message
 

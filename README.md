@@ -11,6 +11,8 @@ PropWise analyzes your Elixir code to find functions that would benefit from pro
 - Find inverse function pairs (encode/decode, serialize/deserialize, etc.)
 - Score and rank candidates by testability
 - Provide specific testing suggestions for each candidate
+- Rank findings meaningfully (inverse pairs first) and show only the top 3 by
+  default, with `--show-all` to expand
 
 ## Features
 
@@ -127,6 +129,9 @@ mix propwise
 # Use PropEr instead of stream_data
 ./propwise --library proper ./my_project
 
+# Show all findings instead of just the top 3
+./propwise --show-all ./my_project
+
 # Show help
 ./propwise --help
 ```
@@ -145,6 +150,9 @@ mix propwise --format json
 
 # Use PropEr instead of stream_data
 mix propwise --library proper
+
+# Show all findings instead of just the top 3
+mix propwise --show-all
 
 # Analyze another project
 mix propwise ../other_project
@@ -243,61 +251,67 @@ jobs:
 
 ## Example Output
 
+By default, PropWise shows the top 3 ranked candidates and inverse pairs, then a
+`… and N more` note. Pass `--show-all` to see everything.
+
 ```
-================================================================================
 PropWise Analysis Report
-================================================================================
 
-Summary:
-  Total functions analyzed: 143
-  Property test candidates: 24
-  Candidates dropped (below threshold): 12
-  Coverage: 16.8%
+Summary
+  ▸ Total functions analyzed: 143
+  ▸ Property test candidates: 24
+  ▸ Candidates dropped (below threshold): 12
+  ▸ Coverage: 16.8%
 
---------------------------------------------------------------------------------
-Inverse Function Pairs Detected:
---------------------------------------------------------------------------------
+Inverse Function Pairs Detected
 
-  MyApp.Encoder.encode/1 <-> decode/1
-  Suggestion: Test round-trip property: decode(encode(x)) == x
+  1. `MyApp.Encoder.encode/1` <-> `decode/1`
+    - Suggestion: Test round-trip property: decode(encode(x)) == x
 
---------------------------------------------------------------------------------
-Top Candidates (sorted by score):
---------------------------------------------------------------------------------
+Candidates (ranked)
 
-MyApp.Parser.parse_json/1
-  Score: 6
-  Location: lib/my_app/parser.ex:42
-  Type: public
-  Patterns:
-    - Parser: Parser function
-  Testing suggestions:
-    - property "parse returns expected structure" do
-        check all input <- string(:alphanumeric) do
-          case Parser.parse_json(input) do
-            {:ok, result} ->
-              # TODO: Add structural assertions for parsed output.
-              assert result != nil
-            {:error, _} -> true
-          end
+1. MyApp.Encoder.encode/1
+  ▸ Rank: #1
+  ▸ Score: 4
+  ▸ Location: lib/my_app/encoder.ex:12
+  ▸ Type: public
+  ▸ Patterns:
+      ▸ Encoder/Decoder: Encoding/decoding function
+  ▸ Testing suggestions:
+      property "encode/decode round-trip" do
+        check all(data <- term()) do
+          encoded = Encoder.encode(data)
+          assert Encoder.decode(encoded) == {:ok, data}
         end
       end
 
-MyApp.List.merge_sorted/2
-  Score: 8
-  Location: lib/my_app/list.ex:15
-  Type: public
-  Patterns:
-    - Collection Operation: Uses Enum collection operations
-    - Algebraic Structure: Potentially algebraic operation
-  Testing suggestions:
-    - property "associativity" do
-        check all a <- term(), b <- term(), c <- term() do
-          assert List.merge_sorted(List.merge_sorted(a, b), c) ==
-                 List.merge_sorted(a, List.merge_sorted(b, c))
-        end
-      end
+2. MyApp.Encoder.decode/1
+  ▸ Rank: #2
+  ▸ Score: 4
+  ▸ Location: lib/my_app/encoder.ex:18
+  ▸ Type: public
+  ▸ Patterns:
+      ▸ Encoder/Decoder: Encoding/decoding function
+  ▸ Testing suggestions:
+      ...
+
+3. MyApp.List.merge_sorted/2
+  ▸ Rank: #3
+  ▸ Score: 8
+  ▸ Location: lib/my_app/list.ex:15
+  ▸ Type: public
+  ▸ Patterns:
+      ▸ Collection Operation: Uses Enum collection operations
+      ▸ Algebraic Structure: Potentially algebraic operation
+  ▸ Testing suggestions:
+      ...
+
+… and 21 more (run with `--show-all` to see all findings).
 ```
+
+> Note how `encode`/`decode` rank above `merge_sorted` even though they have a
+> lower score: inverse-pair members are the most actionable findings, so they are
+> always ranked first.
 
 ## Scoring System
 
@@ -350,6 +364,7 @@ If no `.propwise.exs` file is present, PropWise will use the defaults.
 - `-f, --format FORMAT`: Output format: text or json (default: text)
 - `-o, --output FILE`: Write output to file instead of stdout
 - `-l, --library LIB`: Property testing library: stream_data or proper (default: stream_data)
+- `--show-all`: Show all findings instead of just the top 3 (still ranked)
 - `--no-fail`: Exit with code 0 even when suggestions are found
 - `-h, --help`: Show help message
 
@@ -360,6 +375,32 @@ Note: CLI options override configuration file settings.
 - `:min_score` - Minimum score threshold (integer, default: 4)
 - `:format` - Output format (`:text` or `:json`, default: `:text`)
 - `:library` - Property testing library (`:stream_data` or `:proper`, default: `:stream_data`)
+- `:show_all` - Show all findings instead of the top 3 (boolean, default: `false`)
+- `:limit` - Override the default display limit of 3 (integer; ignored when `:show_all` is `true`)
+
+## Ranking and Output Volume
+
+PropWise reports can be noisy on larger codebases. To keep them actionable, findings are
+**ranked** and **truncated by default**:
+
+- Every candidate is assigned a 1-based **rank** (shown as `Rank: #N` and as a heading prefix).
+- Ranking prioritizes, in order:
+  1. **Inverse-pair members** (e.g. `encode`/`decode`) — round-trip properties are the
+     highest-value tests, so these always rank above other candidates regardless of score.
+  2. Higher **score**.
+  3. **Public** functions before private ones.
+  4. A stable alphabetical tie-break.
+- By default only the **top 3** candidates and **top 3** inverse pairs are shown, each
+  followed by a `… and N more` note.
+- Pass `--show-all` to display **every** finding (still ranked).
+
+```bash
+# Default: top 3 findings only
+mix propwise
+
+# Show every finding, still ranked
+mix propwise --show-all
+```
 
 ## How It Works
 

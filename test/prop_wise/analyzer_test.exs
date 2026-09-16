@@ -152,5 +152,55 @@ defmodule PropWise.AnalyzerTest do
 
       File.rm_rf!(test_dir)
     end
+
+    test "assigns 1-based ranks to all candidates" do
+      test_dir = "/tmp/propwise_rank_test_#{System.unique_integer([:positive])}"
+      lib_dir = Path.join(test_dir, "lib")
+      File.mkdir_p!(lib_dir)
+
+      File.write!(Path.join(lib_dir, "ranked.ex"), """
+      defmodule Ranked do
+        def alpha(list), do: Enum.map(list, &(&1 * 2))
+        def beta(list), do: Enum.filter(list, &(&1 > 0))
+        def gamma(list), do: Enum.sort(list)
+      end
+      """)
+
+      result = Analyzer.analyze_project(test_dir, min_score: 0)
+      File.rm_rf!(test_dir)
+
+      ranks = result.candidates |> Enum.map(& &1.rank) |> Enum.sort()
+      assert ranks == Enum.to_list(1..length(result.candidates))
+    end
+
+    test "ranks inverse-pair members above non-pair candidates" do
+      test_dir = "/tmp/propwise_pair_rank_test_#{System.unique_integer([:positive])}"
+      lib_dir = Path.join(test_dir, "lib")
+      File.mkdir_p!(lib_dir)
+
+      File.write!(Path.join(lib_dir, "codec.ex"), """
+      defmodule Codec do
+        def encode(data), do: :erlang.term_to_binary(data)
+        def decode(bin), do: :erlang.binary_to_term(bin)
+
+        def plain_pipeline(list) do
+          list
+          |> Enum.map(&(&1 * 2))
+          |> Enum.filter(&(&1 > 0))
+          |> Enum.sort()
+        end
+      end
+      """)
+
+      result = Analyzer.analyze_project(test_dir, min_score: 0)
+      File.rm_rf!(test_dir)
+
+      pair_members = Enum.filter(result.candidates, & &1.inverse_pair)
+      assert Enum.map(pair_members, & &1.name) |> Enum.sort() == [:decode, :encode]
+
+      # Even though plain_pipeline has a higher score, pair members rank first.
+      top_two = result.candidates |> Enum.take(2) |> Enum.map(& &1.name) |> Enum.sort()
+      assert top_two == [:decode, :encode]
+    end
   end
 end

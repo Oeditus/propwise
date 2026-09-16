@@ -27,8 +27,16 @@ defmodule PropWise.ReporterTest do
       purity: {:pure, []},
       patterns: Keyword.get(opts, :patterns, [{:collection_operation, "Uses Enum"}]),
       score: Keyword.get(opts, :score, 5),
+      rank: Keyword.get(opts, :rank, 1),
+      inverse_pair: Keyword.get(opts, :inverse_pair, false),
       suggestions: Keyword.get(opts, :suggestions, ["test property X"])
     }
+  end
+
+  defp sample_candidates(count) do
+    for i <- 1..count do
+      sample_candidate(name: :"func_#{i}", rank: i)
+    end
   end
 
   describe "format_report/2 - text format" do
@@ -84,6 +92,70 @@ defmodule PropWise.ReporterTest do
 
       assert report =~ "Candidates dropped (below threshold):** 5"
     end
+
+    test "shows rank number for candidates" do
+      result = sample_result(candidates: [sample_candidate(rank: 2)])
+      report = Reporter.format_report(result)
+
+      assert report =~ "Rank:** #2"
+      assert report =~ "### 2. MyModule.my_func/1"
+    end
+
+    test "limits candidates to top 3 by default and shows a remaining count" do
+      result = sample_result(candidates: sample_candidates(7))
+      report = Reporter.format_report(result)
+
+      assert report =~ "### 1. MyModule.func_1/1"
+      assert report =~ "### 3. MyModule.func_3/1"
+      refute report =~ "### 4. MyModule.func_4/1"
+      assert report =~ "_… and 4 more"
+      assert report =~ "--show-all"
+    end
+
+    test "shows all candidates when show_all is true" do
+      result = sample_result(candidates: sample_candidates(7))
+      report = Reporter.format_report(result, show_all: true)
+
+      assert report =~ "### 7. MyModule.func_7/1"
+      refute report =~ "_… and"
+    end
+
+    test "limits inverse pairs to top 3 by default" do
+      pairs =
+        for i <- 1..5 do
+          %{
+            type: :inverse_pair,
+            forward: {"Codec", :"encode_#{i}", 1},
+            inverse: {"Codec", :"decode_#{i}", 1},
+            suggestion: "Test round-trip #{i}"
+          }
+        end
+
+      result = sample_result(inverse_pairs: pairs)
+      report = Reporter.format_report(result)
+
+      assert report =~ "encode_3/1"
+      refute report =~ "encode_4/1"
+      assert report =~ "_… and 2 more inverse pairs"
+    end
+
+    test "shows all inverse pairs when show_all is true" do
+      pairs =
+        for i <- 1..5 do
+          %{
+            type: :inverse_pair,
+            forward: {"Codec", :"encode_#{i}", 1},
+            inverse: {"Codec", :"decode_#{i}", 1},
+            suggestion: "Test round-trip #{i}"
+          }
+        end
+
+      result = sample_result(inverse_pairs: pairs)
+      report = Reporter.format_report(result, show_all: true)
+
+      assert report =~ "encode_5/1"
+      refute report =~ "_… and"
+    end
   end
 
   describe "format_report/2 - JSON format" do
@@ -106,6 +178,8 @@ defmodule PropWise.ReporterTest do
       assert candidate["name"] == "encode_data"
       assert candidate["score"] == 7
       assert candidate["module"] == "MyModule"
+      assert candidate["rank"] == 1
+      assert candidate["inverse_pair"] == false
     end
 
     test "serializes inverse pairs" do

@@ -36,4 +36,8 @@ propwise-*.tar
 # Project-specific configuration
 /.propwise.exs
 
+# Tooling / agent artifacts
+/.mix/
+/.ragex/
+/.yoke/
 

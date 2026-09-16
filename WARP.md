@@ -114,7 +114,9 @@ The codebase follows a pipeline architecture with 12 modules:
    - Generates testing suggestions for each pattern type
    - Loads config once and threads through to Parser
    - Filters by minimum score (default: 4)
-   - Returns sorted list of `PropWise.Candidate` structs
+   - Ranks candidates: inverse-pair members first, then by score, then public-before-private,
+     then a stable alphabetical tie-break; assigns a 1-based `rank` and an `inverse_pair` flag
+   - Returns ranked list of `PropWise.Candidate` structs
 
 6. **PropWise.SuggestionGenerator** (`lib/prop_wise/suggestion_generator.ex`)
    - Generates library-specific property test suggestions
@@ -128,7 +130,9 @@ The codebase follows a pipeline architecture with 12 modules:
 7. **PropWise.Reporter** (`lib/prop_wise/reporter.ex`)
    - Formats analysis results for output
    - Supports text and JSON formats
-   - Displays candidates sorted by score with suggestions
+   - Displays candidates ranked, showing `Rank: #N`
+   - Shows only the top 3 candidates and top 3 inverse pairs by default, with a
+     `… and N more` note; `show_all: true` (CLI `--show-all`) displays every finding
 
 8. **PropWise.CommandLine** (`lib/prop_wise/command_line.ex`)
    - Shared argument parsing and analysis logic for CLI and Mix task
@@ -192,6 +196,8 @@ Reporter: Format and display results
   purity: {:pure, []} | {:impure, [effects]},
   patterns: [{:collection_operation, "reason"}, ...],
   score: integer,
+  rank: integer | nil,
+  inverse_pair: boolean,
   suggestions: ["Test property X", ...]
 }
 ```

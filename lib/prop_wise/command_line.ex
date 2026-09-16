@@ -14,6 +14,7 @@ defmodule PropWise.CommandLine do
       library: :string,
       files: :string,
       no_fail: :boolean,
+      show_all: :boolean,
       help: :boolean
     ],
     aliases: [
@@ -67,6 +68,7 @@ defmodule PropWise.CommandLine do
 
     min_score = Keyword.get(opts, :min_score, 4)
     library = parse_library(opts, format, error_fn)
+    show_all = Keyword.get(opts, :show_all, false)
 
     if format == :text do
       info_fn.("Analyzing #{path}...")
@@ -84,11 +86,14 @@ defmodule PropWise.CommandLine do
 
     output_file = Keyword.get(opts, :output)
 
+    report_opts = [format: format, show_all: show_all]
+    report_opts = if library, do: Keyword.put(report_opts, :library, library), else: report_opts
+
     if output_file do
-      output = Reporter.format_report(result, format: format)
+      output = Reporter.format_report(result, report_opts)
       File.write!(output_file, output)
     else
-      Reporter.print_report(result, format: format)
+      Reporter.print_report(result, report_opts)
     end
 
     no_fail = Keyword.get(opts, :no_fail, false)
@@ -117,6 +122,7 @@ defmodule PropWise.CommandLine do
       -o, --output FILE       Write output to file instead of stdout
       -l, --library LIB       Property testing library: stream_data or proper (default: stream_data)
       --files FILES           Comma-separated list of specific files to analyze (ideal for PRs)
+      --show-all              Show all findings instead of the top 3 (still ranked)
       --no-fail               Exit with code 0 even when suggestions are found
       -h, --help              Show this help message
 
