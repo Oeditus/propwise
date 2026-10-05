@@ -34,8 +34,10 @@ jobs:
       - name: Install dependencies
         run: mix deps.get
 
-      - name: Build escript
-        run: MIX_ENV=prod mix escript.build
+      - name: Build escript and archive
+        run: |
+          MIX_ENV=prod mix escript.build
+          MIX_ENV=prod mix archive.build
 
       - name: Get version
         id: version
@@ -48,7 +50,7 @@ jobs:
 
       - name: Create checksums
         run: |
-          sha256sum propwise > propwise.sha256
+          sha256sum propwise propwise-*.ez > checksums.txt
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -56,7 +58,8 @@ jobs:
         with:
           files: |
             propwise
-            propwise.sha256
+            propwise-*.ez
+            checksums.txt
           body: |
             ## PropWise Release ${{ steps.version.outputs.version }}
             

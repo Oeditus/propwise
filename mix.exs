@@ -1,3 +1,42 @@
+defmodule Mix.Tasks.BundleDeps do
+  use Mix.Task
+
+  @shortdoc "Bundles compiled dependency beam and app files into propwise ebin"
+  @moduledoc """
+  Copies compiled dependency files (.beam and .app) into propwise's ebin directory
+  so that when Mix builds an archive (.ez), all runtime dependencies are bundled.
+  """
+  def run(_args) do
+    build_path = Mix.Project.build_path()
+    lib_path = Path.join(build_path, "lib")
+    app_name = Atom.to_string(Mix.Project.config()[:app])
+    target_ebin = Path.join([lib_path, app_name, "ebin"])
+
+    if File.dir?(lib_path) and File.dir?(target_ebin) do
+      lib_path
+      |> File.ls!()
+      |> Enum.reject(&(&1 == app_name))
+      |> Enum.each(fn dep_app ->
+        dep_ebin = Path.join([lib_path, dep_app, "ebin"])
+
+        if File.dir?(dep_ebin) do
+          dep_ebin
+          |> Path.join("*")
+          |> Path.wildcard()
+          |> Enum.each(fn dep_file ->
+            if File.regular?(dep_file) do
+              dest = Path.join(target_ebin, Path.basename(dep_file))
+              File.copy!(dep_file, dest)
+            end
+          end)
+        end
+      end)
+    end
+
+    {:ok, []}
+  end
+end
+
 defmodule PropWise.MixProject do
   use Mix.Project
 
@@ -63,6 +102,7 @@ defmodule PropWise.MixProject do
 
   defp aliases do
     [
+      "archive.build": ["compile", "bundle_deps", "archive.build --no-compile"],
       quality: ["format", "credo --strict", "dialyzer"],
       "quality.ci": [
         "format --check-formatted",

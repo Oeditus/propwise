@@ -42,7 +42,14 @@ defmodule PropWise.Reporter do
 
       _ ->
         markdown = format_markdown_report(analysis_result, opts)
-        IO.puts(Marcli.render(markdown))
+
+        try do
+          IO.puts(Marcli.render(markdown))
+        rescue
+          _ -> IO.puts(markdown)
+        catch
+          _, _ -> IO.puts(markdown)
+        end
     end
   end
 
