@@ -40,4 +40,13 @@ propwise-*.tar
 /.mix/
 /.ragex/
 /.yoke/
+/.hex/
+/.cache/
+
+# Local IPC sockets (e.g. Dllb) that occasionally land in the project root
+*.sock
+
+# Crash dumps (the bare filename is covered above; this catches variants)
+erl_crash.dump.*
+
 

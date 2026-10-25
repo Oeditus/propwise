@@ -22,7 +22,8 @@ defmodule PropWise.AnalyzerTest do
       result = Analyzer.analyze_function(func)
 
       assert result.score == 0
-      assert {:impure, _} = result.purity
+      assert result.purity == :impure
+      assert result.side_effects != []
     end
 
     test "pure function with no patterns gets base score only" do
@@ -31,7 +32,17 @@ defmodule PropWise.AnalyzerTest do
 
       # base(1) + public(1) = 2
       assert result.score == 2
-      assert {:pure, []} = result.purity
+      assert result.purity == :pure
+    end
+
+    test "unknown-purity functions are scored at half weight" do
+      func = make_function(quote(do: MyApp.Helpers.normalize(x)), name: :normalize)
+      result = Analyzer.analyze_function(func)
+
+      assert result.purity == :unknown
+      # base(1) + public(1) = 2, halved and rounded -> 1
+      assert result.score == 1
+      assert result.unresolved_calls == ["MyApp.Helpers.normalize"]
     end
 
     test "public pure function with one pattern scores higher" do

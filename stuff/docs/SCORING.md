@@ -4,59 +4,168 @@ This document explains the criteria used to identify property-based testing cand
 
 ## Overview
 
-PropWise analyzes functions based on two primary factors:
-1. **Purity** - Whether the function has side effects
-2. **Pattern Detection** - Whether the function exhibits patterns suitable for property testing
+PropWise analyzes functions based on three factors:
+1. **Purity** - three-state classification: `:pure`, `:unknown`, or `:impure`
+2. **Pattern Detection** - whether the function exhibits patterns suitable for property testing
+3. **Law Inference** - which algebraic laws the functions it calls imply
 
-Only pure functions (those without side effects) receive a score. Impure functions automatically receive a score of 0.
+Impure functions automatically receive a score of 0 and are never reported.
 
 ## Purity Analysis
 
-### What Makes a Function Pure?
+### The three states
 
-A function is considered pure if it:
-- Does not perform I/O operations
-- Does not interact with processes or concurrency primitives
-- Does not modify external state
-- Always returns the same output for the same input
+A binary pure/impure split forces every function that calls *any* other function
+to be guessed at. PropWise distinguishes:
 
-### Side Effects Detected
+| State | Meaning | Score |
+| --- | --- | --- |
+| `:pure` | Every call in the body resolves to a known-pure function | full |
+| `:unknown` | No side effect found, but some calls could not be resolved | half (rounded down, min 1) |
+| `:impure` | A known side effect was found | 0 |
 
-PropWise walks the function's AST looking for the following side effects:
+`:unknown` candidates are still reported — they are simply ranked below `:pure`
+ones so that genuinely clean functions come first.
 
-#### I/O Operations
+### What makes a function `:impure`?
+
+A function is `:impure` if the AST contains any of the following.
+
+#### Semantic operations (from Metastatic `op_kind`)
+
+Any call annotated with a semantic domain of `:db`, `:http`, `:cache`, `:file`,
+`:auth`, `:queue`, or `:external_api`.
+
+#### I/O operations
 - `File.*` - File system operations
 - `IO.*` - Standard input/output
 - `Logger.*` - Logging operations
 
-#### Process Operations
-- `GenServer.*` - GenServer calls
-- `Agent.*` - Agent operations
-- `Task.*` - Task spawning
-- `Process.*` - Process management
-- `send/2` - Message sending
-- `spawn/*` - Process spawning
-- `spawn_link/*` - Linked process spawning
-- `receive` blocks - Message receiving
+#### Process operations
+- `GenServer.*`, `Agent.*`, `Task.*`, `Process.*`
+- `send/2`, `spawn/*`, `spawn_link/*`
+- `receive` blocks
 
-#### Database Operations
-- `Ecto.Repo.*` - Database queries
-- `Ecto.Query.*` - Query building with execution
+#### Database / HTTP / System
+- `Ecto.Repo.*`, `Ecto.Query.*`
+- `Req.*`
+- `System.*`, `:ets.*`, `:dets.*`, `:mnesia.*`
+- `Registry.*`, `DynamicSupervisor.*`, `Supervisor.*`
 
-#### HTTP Operations
-- `Req.*` - HTTP requests
+### What makes a function `:pure` vs `:unknown`?
 
-#### System Operations
-- `System.*` - System calls
-- `:ets.*` - ETS table operations
-- `:dets.*` - DETS operations
-- `:mnesia.*` - Mnesia database operations
+A function is `:pure` only when **every** call in its body resolves to a
+known-pure function. The built-in pure set covers `Enum`, `Map`, `List`,
+`String`, `Integer`, `Float`, `Kernel`, `Tuple`, `Keyword`, `MapSet`, `Range`,
+`Access`, `Stream`, `Base`, `Jason`, `URI`, `Version`, and the `:erlang`,
+`:lists`, `:maps`, `:binary`, `:math`, `:string`, `:unicode` modules.
 
-### Result
+Any call that cannot be resolved — another module's function, or an
+unqualified local call — makes the function `:unknown`, because a static
+analyzer cannot know whether that call is pure.
 
-If any side effects are detected, the function is marked as `{:impure, [side_effects]}` and receives a score of 0.
+### Declaring your own pure modules
 
-If no side effects are found, the function is marked as `{:pure, []}` and proceeds to pattern detection and scoring.
+Configure `pure_modules` to promote calls into modules you know are pure:
+
+```elixir
+# .propwise.exs
+%{pure_modules: [MyApp.Math, MyApp.Parsing]}
+```
+
+A call into one of these no longer downgrades the caller to `:unknown`. Real
+side effects elsewhere in the body still make it `:impure`.
+
+## Law Inference
+
+Pattern detection says "this is worth testing". The law table says **which
+property to write**.
+
+PropWise collects the call names in a function body and looks them up in
+`PropWise.LawTable`, which maps ~60 known functions to the algebraic laws they
+imply:
+
+| Call | Inferred laws |
+| --- | --- |
+| `Map.merge` | idempotence, associativity, identity (`%{}`) |
+| `Enum.reverse` | involution, length preservation, permutation |
+| `Enum.sort` | idempotence, length preservation, permutation, monotonicity |
+| `String.trim` | idempotence |
+| `String.split` | round-trip |
+| `abs` | idempotence, monotonicity |
+| `Base.encode64` | round-trip |
+
+Pattern-derived laws are merged in, so an `:algebraic` pattern always
+contributes associativity, commutativity and identity regardless of the callee.
+
+### Law vocabulary
+
+| Law | Property |
+| --- | --- |
+| `:involution` | `f(f(x)) == x` |
+| `:idempotent` | `f(f(x)) == f(x)` (unary) / `f(a, a) == a` (binary) |
+| `:associative` | `f(f(a, b), c) == f(a, f(b, c))` |
+| `:commutative` | `f(a, b) == f(b, a)` |
+| `:identity` | `f(a, identity) == a` |
+| `:permutation` | output is a permutation of input |
+| `:length_preserving` | `length(f(x)) == length(x)` |
+| `:monotonic` | `a <= b implies f(a) <= f(b)` |
+| `:round_trip` | paired with the inverse function |
+| `:total` | never raises for generated input |
+| `:bounded` | output stays within a known range |
+| `:deterministic` | `f(x) == f(x)` — the weakest law, used as a fallback |
+
+## Score Calculation
+
+For non-impure functions, the score is calculated as follows:
+
+### Base Score
+**1 point** - Just for being pure or unknown
+
+### Pattern Score
+**2 points per pattern detected**
+
+### Multi-Pattern Bonus
+**2 points** - If function has 2 or more detected patterns
+
+### Complexity Bonus
+**1 point** - If the function contains conditional logic (`case`, `cond`,
+`with`, or `if`), OR the function body has more than 12 AST nodes
+
+Note: the node count is measured on the MetaAST, not on a stringified body.
+`Metastatic.to_string/1` joins block statements with `"; "`, so a newline count
+would never register a multi-statement body.
+
+### Visibility Bonus
+**1 point** - If the function is public (`def` vs `defp`)
+
+### Purity Weighting
+
+The raw score above is then weighted by purity:
+
+- `:pure` → the raw score, unchanged
+- `:unknown` → `max(1, round(raw * 0.5))`
+
+## Score Formula
+
+```elixir
+raw = base_score + pattern_score + multi_pattern_bonus + complexity_bonus + visibility_bonus
+
+score =
+  case purity do
+    :impure  -> 0
+    :pure    -> raw
+    :unknown -> max(1, round(raw * 0.5))
+  end
+```
+
+Where:
+- `base_score = 1`
+- `pattern_score = num_patterns * 2`
+- `multi_pattern_bonus = num_patterns >= 2 ? 2 : 0`
+- `complexity_bonus = is_complex? ? 1 : 0`
+- `visibility_bonus = is_public? ? 1 : 0`
+
 
 ## Pattern Detection
 
@@ -175,8 +284,12 @@ Encoding/decoding should have:
 
 **Detection criteria:**
 - Function name contains `parse` as an exact underscore-separated segment
-- Function body uses `Regex.run`, `Regex.scan`, or `Regex.match?`
+- Function body uses `Regex.run` or `Regex.scan`
 
+Note: `Regex.match?/2` is deliberately **not** a parser signal — it is a
+predicate. Likewise, a function whose name ends in `?` is never classified as a
+parser; it is a validation concern. This prevents a function like
+`valid_email?/1` from being labelled both `validation` and `parser`.
 **Why property-testable:**
 Parsers should:
 - Have well-defined success/failure cases
@@ -208,101 +321,6 @@ Numeric functions often have:
 - Function handles boundary values correctly
 - Special numeric values processed appropriately
 - Numeric relationships maintained
-
-## Score Calculation
-
-For pure functions, the score is calculated as follows:
-
-### Base Score
-**1 point** - Just for being pure
-
-### Pattern Score
-**2 points per pattern detected**
-
-If a function matches multiple pattern types, each adds 2 points.
-
-### Multi-Pattern Bonus
-**2 points** - If function has 2 or more detected patterns
-
-Functions that match multiple patterns tend to be especially good candidates for property testing.
-
-### Complexity Bonus
-**1 point** - If the function is non-trivial
-
-A function is considered non-trivial if:
-- The function body has more than 3 lines when converted to string, OR
-- The function contains conditional logic (`case`, `cond`, or `with` expressions)
-
-Simple one-line functions are less interesting for property testing.
-
-### Visibility Bonus
-**1 point** - If the function is public (`def` vs `defp`)
-
-Public functions are the API surface and generally more important to test thoroughly.
-
-## Score Formula
-
-```elixir
-score = base_score + pattern_score + multi_pattern_bonus + complexity_bonus + visibility_bonus
-```
-
-Where:
-- `base_score = 1` (for pure functions)
-- `pattern_score = num_patterns * 2`
-- `multi_pattern_bonus = num_patterns >= 2 ? 2 : 0`
-- `complexity_bonus = is_complex? ? 1 : 0`
-- `visibility_bonus = is_public? ? 1 : 0`
-
-## Examples
-
-### Example 1: Simple Pure Function
-```elixir
-defp double(x), do: x * 2
-```
-- Pure: ✓ (base = 1)
-- Patterns: None (single arithmetic op `*` does not meet the 2+ threshold)
-- Multi-pattern bonus: 0
-- Complexity: 0 (too simple)
-- Visibility: 0 (private)
-- **Total: 1**
-
-### Example 2: Public Collection Operation
-```elixir
-def transform_users(users) do
-  users
-  |> Enum.map(&normalize_user/1)
-  |> Enum.filter(&valid_email?/1)
-  |> Enum.sort_by(& &1.name)
-end
-```
-- Pure: ✓ (base = 1)
-- Patterns: Collection (2) -- detected via `Enum.map`, `Enum.filter`, `Enum.sort_by`
-- Multi-pattern bonus: 0
-- Complexity: 1 (multiple lines)
-- Visibility: 1 (public)
-- **Total: 5**
-
-### Example 3: Round-trip Functions
-```elixir
-def encode_json(data), do: Jason.encode!(data)
-def decode_json(json), do: Jason.decode!(json)
-```
-- Pure: ✓ (base = 1 each)
-- Patterns: Encoder/Decoder (2 each)
-- Multi-pattern bonus: 0 (only one pattern)
-- Complexity: 0 (simple)
-- Visibility: 1 (public)
-- **Total: 4 each**
-- **Plus**: Detected as inverse pair!
-
-### Example 4: Impure Function
-```elixir
-def save_to_file(data, path) do
-  File.write!(path, data)
-end
-```
-- Pure: ✗ (has side effect: File.write!)
-- **Total: 0** (impure functions always score 0)
 
 ## Minimum Score Threshold
 
@@ -336,8 +354,10 @@ sort order is:
    (e.g. `encode`/`decode`) always rank above non-pair candidates, regardless of
    score, because round-trip properties are the highest-value tests.
 2. **Higher score** — among candidates of the same pair-membership class.
-3. **Public before private**.
-4. A stable alphabetical tie-break (module, name, arity).
+3. **`:pure` before `:unknown`** — a function whose purity is certain is more
+   trustworthy than one with unresolved calls, even at the same score.
+4. **Public before private**.
+5. A stable alphabetical tie-break (module, name, arity).
 
 By default only the top 3 ranked candidates and top 3 inverse pairs are shown,
 followed by a `… and N more` note. Use `--show-all` (CLI) or `show_all: true`
@@ -348,17 +368,28 @@ followed by a `… and N more` note. Use `--show-all` (CLI) or `show_all: true`
 ### False Positives
 
 PropWise may report functions that:
-- Call other module functions that have side effects (can't determine purity of external calls)
+- Are classified `:unknown` because they call an unresolvable module — add the
+  module to `pure_modules` to sharpen this
 - Are detected by pattern matching but don't actually have testable properties
 - Are too trivial to benefit from property testing despite matching patterns
 
 ### False Negatives
 
 PropWise may miss functions that:
-- Have testable properties but don't match any detection patterns
+- Have testable properties but don't match any detection pattern
 - Use macros or dynamically generated code
-- Hide side effects in called functions
+- Hide side effects in called functions (a call into an unresolved module is
+  treated as `:unknown`, not `:impure`)
+
+### Law inference
+
+The law table recognises ~60 specific functions. It does not reason about
+arbitrary code: a function that implements `merge` by hand rather than calling
+`Map.merge` gets no inferred laws (though the `:algebraic` name pattern still
+contributes associativity/commutativity/identity).
 
 ### Recommendations
 
-Use PropWise as a discovery tool, not an absolute authority. Review suggestions critically and apply judgment about which functions truly benefit from property-based testing.
+Use PropWise as a discovery tool, not an absolute authority. Review suggestions
+critically and apply judgment about which functions truly benefit from
+property-based testing.

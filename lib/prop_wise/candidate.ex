@@ -3,12 +3,17 @@ defmodule PropWise.Candidate do
   Represents a scored property-based testing candidate.
   """
 
-  @type purity :: {:pure, []} | {:impure, [side_effect()]}
-  @type side_effect ::
-          {:module_call, module(), atom(), non_neg_integer()}
-          | {:function_call, atom(), non_neg_integer()}
-          | {:receive_block}
+  @typedoc """
+  Purity classification: `:pure` (all calls resolved and side-effect free),
+  `:unknown` (no side effect found, but some calls could not be resolved) or
+  `:impure` (a known side effect was found).
+  """
+  @type purity :: :pure | :unknown | :impure
+
+  @type side_effect :: PropWise.PurityAnalyzer.side_effect()
+
   @type pattern :: {pattern_type(), String.t()}
+
   @type pattern_type ::
           :collection_operation
           | :transformation
@@ -18,17 +23,22 @@ defmodule PropWise.Candidate do
           | :parser
           | :numeric
 
+  @type law :: PropWise.LawTable.law()
+
   @type t :: %__MODULE__{
           module: String.t(),
-          name: atom(),
+          name: atom() | String.t(),
           arity: non_neg_integer(),
           file: String.t(),
           line: pos_integer(),
           type: :public | :private,
           purity: purity(),
+          side_effects: [side_effect()],
+          unresolved_calls: [String.t()],
           patterns: [pattern()],
+          laws: [law()],
           score: non_neg_integer(),
-          rank: pos_integer() | nil,
+          rank: pos_integer(),
           inverse_pair: boolean(),
           suggestions: [String.t()]
         }
@@ -43,6 +53,7 @@ defmodule PropWise.Candidate do
     :purity,
     :patterns,
     :score,
+    :rank,
     :suggestions
   ]
   defstruct [
@@ -57,6 +68,9 @@ defmodule PropWise.Candidate do
     :score,
     :rank,
     :suggestions,
+    side_effects: [],
+    unresolved_calls: [],
+    laws: [],
     inverse_pair: false
   ]
 end

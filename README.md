@@ -342,7 +342,12 @@ You can customize PropWise's behavior by creating a `.propwise.exs` file in your
 
   # Property-based testing library to use for suggestions
   # Options: :stream_data (default) or :proper
-  library: :stream_data
+  library: :stream_data,
+
+  # Modules whose functions are known to be pure. Calls into these modules do
+  # not downgrade the caller to :unknown. Accepts module atoms or strings.
+  # Default: []
+  pure_modules: [MyApp.Math, MyApp.Parsing]
 
   # You can analyze multiple directories:
   # analyze_paths: ["lib", "src", "apps/my_app/lib"]
@@ -353,6 +358,7 @@ You can customize PropWise's behavior by creating a `.propwise.exs` file in your
 
 - `analyze_paths` - List of directories to analyze relative to project root (default: `["lib"]`)
 - `library` - Property testing library for code generation: `:stream_data` or `:proper` (default: `:stream_data`)
+- `pure_modules` - Modules whose functions are known to be pure (default: `[]`)
 
 If no `.propwise.exs` file is present, PropWise will use the defaults.
 
@@ -364,6 +370,10 @@ If no `.propwise.exs` file is present, PropWise will use the defaults.
 - `-f, --format FORMAT`: Output format: text or json (default: text)
 - `-o, --output FILE`: Write output to file instead of stdout
 - `-l, --library LIB`: Property testing library: stream_data or proper (default: stream_data)
+- `--files FILES`: Comma-separated list of files to analyze (ideal for PRs)
+- `--baseline FILE`: Only report candidates that are new or whose score increased
+  relative to the given baseline file (CI ratcheting)
+- `--write-baseline FILE`: Write a baseline snapshot of the current candidates and exit
 - `--show-all`: Show all findings instead of just the top 3 (still ranked)
 - `--no-fail`: Exit with code 0 even when suggestions are found
 - `-h, --help`: Show help message
@@ -413,18 +423,151 @@ mix propwise --show-all
 7. **Generate Suggestions**: Creates concrete property-based test examples using your chosen library
 8. **Report**: Presents findings with ready-to-use test code
 
+## Purity: three states, not two
+
+A binary pure/impure split forces every function that calls *any* other function
+to be guessed at. `MyApp.Helpers.normalize/1` might be a pure list transform or
+might hit the database — static analysis cannot know without following the call.
+
+PropWise therefore classifies each function as one of:
+
+| State | Meaning |
+| --- | --- |
+| `:pure` | Every call in the body resolves to a known-pure function |
+| `:unknown` | No side effect found, but some calls could not be resolved |
+| `:impure` | A known side effect was found |
+
+`:unknown` candidates are **still reported**, but scored at half weight and
+ranked below `:pure` ones — so genuinely clean functions come first while
+nothing is silently discarded. Reports name the unresolved calls, so you can
+see *why* a function is uncertain:
+
+```
+- **Purity:** unknown (unresolved calls)
+- **Unresolved calls:** is_map, merge_configs
+```
+
+### Declaring your own pure modules
+
+If your codebase has modules you know are pure, tell PropWise and their callers
+will be classified `:pure` instead of `:unknown`:
+
+```elixir
+# .propwise.exs
+%{
+  analyze_paths: ["lib"],
+  pure_modules: [MyApp.Math, MyApp.Parsing]
+}
+```
+
+## Inferred laws: which property should I write?
+
+Pattern detection answers "is this worth testing?". The law table answers the
+much more useful question: **which property should I write?**
+
+PropWise inspects the functions a body actually calls and infers algebraic laws
+from a curated table. A function that calls `Map.merge/3` is reported as
+associative, idempotent, and having an identity element — not the generic
+"deterministic output" that applies to literally any pure function:
+
+```
+- **Inferred laws:** idempotence, associativity, identity element, commutativity
+```
+
+Those laws become real, ready-to-run properties:
+
+```elixir
+property "associativity: f(f(a, b), c) == f(a, f(b, c))" do
+  check all(a <- term(), b <- term(), c <- term()) do
+    assert MyApp.Config.merge_configs(
+             MyApp.Config.merge_configs(a, b), c
+           ) ==
+             MyApp.Config.merge_configs(
+               a, MyApp.Config.merge_configs(b, c)
+             )
+  end
+end
+
+property "identity element: f(a, identity) == a" do
+  check all(a <- term()) do
+    identity = %{}
+    assert MyApp.Config.merge_configs(a, identity) == a
+  end
+end
+```
+
+Idempotence is rendered arity-appropriately: `f(f(x)) == f(x)` for a unary
+function, `f(a, a) == a` for a binary operation (which is exactly what
+`Map.merge(m, m) == m` expresses).
+
+The table covers ~60 functions across maps (`Map.merge`, `Map.put`, …),
+collections (`Enum.reverse` → involution, `Enum.sort` → idempotence +
+permutation + monotonicity, …), strings (`String.trim` → idempotence,
+`String.split` → round-trip), numerics (`abs` → idempotent + monotonic), and
+encodings (`Base.encode64`, `Jason.encode`, `:erlang.term_to_binary` →
+round-trip). See `PropWise.LawTable` for the full list and the law vocabulary.
+
+## Baseline mode: ratchet your CI
+
+A report you read once is a report you ignore. Baseline mode turns PropWise into
+a **ratchet**: accept today's state, then fail only when a change makes things
+worse.
+
+```bash
+# 1. Snapshot the current state (commit this file)
+mix propwise --write-baseline .propwise/baseline.json
+
+# 2. In CI: report only newly introduced candidates
+mix propwise --baseline .propwise/baseline.json
+```
+
+- Candidates already in the baseline are **suppressed**.
+- A candidate whose score *increased* counts as a regression and is reported.
+- A candidate whose score *decreased* is an improvement and stays suppressed.
+- Exit code is `1` only when there are new/regressed candidates, so the check
+  passes on unchanged code and fails on new debt.
+
+GitHub Actions example:
+
+```yaml
+- name: PropWise ratchet
+  run: mix propwise --baseline .propwise/baseline.json
+```
+
+A malformed or unreadable baseline is a **hard error** rather than a silent
+empty baseline — otherwise every existing candidate would look new and flood CI.
+
 ## Limitations
 
 - Static analysis only - doesn't execute code
-- May produce false positives for functions that call other module functions (can't determine if those are pure)
+- Purity is three-state but still heuristic: a function calling an unresolved
+  module is `:unknown` (half weight), not silently assumed pure. Add
+  `pure_modules` to sharpen it.
 - Pattern detection is heuristic-based
+- Law inference is table-driven: it recognises the ~60 listed functions, not
+  arbitrary code
 - Doesn't analyze macros or dynamically generated code in depth
+- Inverse-pair detection is name-based and limited to functions defined in the
+  same module
+
+## Installation Notes
+
+`marcli` (used to render the text report with ANSI colours) is an **optional**
+dependency. Without it, PropWise prints raw Markdown instead — everything else
+works identically.
+
+`marcli` pulls in `mdex_native`, a Rust NIF. `config/config.exs` forces a
+from-source build of that NIF by default, because the precompiled artifact
+download fails behind some proxies. If your network can reach GitHub releases,
+set `PROPWISE_NO_NATIVE_BUILD=1` before compiling for a much faster build.
 
 ## Security Note
 
 PropWise loads configuration from `.propwise.exs` files using `Code.eval_file/1`,
 which executes arbitrary Elixir code. Only analyze projects you trust.
 
+Function names are interned with `String.to_existing_atom/1`, so analysing
+untrusted source cannot exhaust the VM's atom table.
 ## Contributing
 
 Contributions are welcome! Areas for improvement:

@@ -9,19 +9,25 @@ defmodule PropWise.Config do
 
   @default_config %{
     analyze_paths: ["lib"],
-    library: :stream_data
+    library: :stream_data,
+    pure_modules: []
   }
 
   @doc """
   Loads configuration from .propwise.exs in the project root.
-  Falls back to default configuration if file doesn't exist.
+  Falls back to default configuration if file doesn't exist or is invalid.
+
+  When `:on_error` is given as a 1-arity function, configuration problems are
+  reported through it instead of being silently swallowed — a typo in
+  `.propwise.exs` should never manifest as a mysterious "0 functions" report.
   """
-  @spec load(String.t()) :: map()
-  def load(project_path) do
+  @spec load(String.t(), keyword()) :: map()
+  def load(project_path, opts \\ []) do
     config_file = Path.join(project_path, ".propwise.exs")
+    on_error = Keyword.get(opts, :on_error)
 
     if File.exists?(config_file) do
-      load_config_file(config_file)
+      load_config_file(config_file, on_error)
     else
       @default_config
     end
@@ -47,13 +53,25 @@ defmodule PropWise.Config do
     normalize_library(lib)
   end
 
+  @doc """
+  Returns the modules whose functions are known to be pure.
+
+  Accepts module atoms or strings (`MyApp.Math` or `"MyApp.Math"`); the
+  analyzer normalises them.
+  """
+  @spec pure_modules(String.t()) :: [module() | String.t()]
+  def pure_modules(project_path) do
+    config = load(project_path)
+    Map.get(config, :pure_modules, @default_config.pure_modules)
+  end
+
   defp normalize_library(:stream_data), do: :stream_data
   defp normalize_library(:proper), do: :proper
   defp normalize_library("stream_data"), do: :stream_data
   defp normalize_library("proper"), do: :proper
   defp normalize_library(_), do: @default_config.library
 
-  defp load_config_file(config_file) do
+  defp load_config_file(config_file, on_error) do
     {config, _bindings} = Code.eval_file(config_file)
 
     # Validate that it's a map or keyword list
@@ -64,13 +82,20 @@ defmodule PropWise.Config do
       config when is_list(config) ->
         Map.new(config)
 
-      _ ->
-        # Silently fall back to defaults to avoid polluting output
+      other ->
+        report(
+          on_error,
+          "ignoring #{config_file}: expected a map or keyword list, got: #{inspect(other)}"
+        )
+
         @default_config
     end
   rescue
-    _e ->
-      # Silently fall back to defaults to avoid polluting output
+    e ->
+      report(on_error, "ignoring #{config_file}: #{Exception.message(e)}")
       @default_config
   end
+
+  defp report(nil, _message), do: :ok
+  defp report(fun, message) when is_function(fun, 1), do: fun.(message)
 end

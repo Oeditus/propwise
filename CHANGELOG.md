@@ -8,6 +8,109 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+#### Three-state purity
+- Purity is now classified as `:pure`, `:unknown` or `:impure` instead of a
+  binary pure/impure split.
+  - `:pure` — every call in the body resolves to a known-pure function.
+  - `:unknown` — no side effect was found, but some calls could not be resolved
+    (another module's function, an unqualified local call).
+  - `:impure` — a known side effect was found.
+- `:unknown` candidates are still reported but scored at half weight
+  (`PropWise.Analyzer`'s `@unknown_weight`) and ranked below `:pure` ones, so
+  genuinely clean functions come first.
+- New `:pure_modules` configuration option (and `.propwise.exs` key) listing
+  modules whose functions are known to be pure. A call into one of them does
+  not downgrade the caller to `:unknown`.
+- `PropWise.PurityAnalyzer.analyze/2` now returns a map
+  (`%{purity:, side_effects:, unresolved_calls:}`); `classify/2` returns the
+  atom directly and `pure?/2` is true only for `:pure`.
+- Reports show the purity of each candidate, the purity breakdown in the
+  summary, and — for `:unknown` functions — *which* calls could not be resolved.
+
+#### Law-table inference
+- New `PropWise.LawTable` maps known functions to the algebraic laws they imply
+  (`Map.merge` → associativity, idempotence, identity; `Enum.reverse` →
+  involution; `Enum.sort` → idempotence, permutation, monotonicity; and ~60
+  more).
+- The analyzer collects the call names in a function body and infers laws from
+  them, merging in pattern-derived laws (an `:algebraic` pattern always
+  contributes associativity/commutativity/identity).
+- `PropWise.SuggestionGenerator` renders inferred laws as real properties —
+  `merge(merge(a, b), c) == merge(a, merge(b, c))` — instead of the generic
+  "deterministic output" fallback. Idempotence is rendered arity-appropriately
+  (`f(f(x)) == f(x)` for unary, `f(a, a) == a` for binary).
+- Concrete identity elements are rendered where the table knows one
+  (`Map.merge` → `%{}`, `Enum.sum` → `0`, `Enum.concat` → `[]`).
+
+#### Baseline CI ratcheting
+- New `PropWise.Baseline` module and `--baseline FILE` /
+  `--write-baseline FILE` CLI flags.
+- `--write-baseline` snapshots the current candidates to JSON and exits.
+- `--baseline` reports only candidates that are new or whose score increased,
+  suppressing previously accepted ones. Exit code is non-zero only on
+  regressions, so PropWise can be enforced in CI as a ratchet.
+- A malformed or unreadable baseline is a hard error rather than a silent empty
+  baseline (which would make every existing candidate look new).
+
+### Fixed
+- JSON output no longer crashes on `side_effects` tuples (`Jason.Encoder` is not
+  implemented for tuples); side effects are serialised to plain maps.
+- A piped call into a dotted module (`x |> MyApp.f()`) is no longer treated as
+  pure. Metastatic renders such calls with a mangled name, which previously
+  resolved against the wrong entry in the side-effect table.
+- `Regex.match?/2` no longer marks a function as a parser — it is a predicate,
+  not a parser. `?`-suffixed functions are now classified as validation only.
+- `compress`/`decompress` inverse-pair mapping no longer maps `compress` to
+  itself, so round-trip suggestions are correct.
+- Suggestion generator now emits the **full** module name
+  (`MyApp.Deep.Nested.Encoder.encode/1`) instead of truncating to the last
+  segment, so generated snippets resolve without an extra `alias`.
+- Suggestion generator builds call sites structurally instead of patching them
+  with a regex; multi-argument and zero-arity calls are no longer mangled.
+- The complexity bonus now counts AST nodes instead of newlines in a
+  stringified body. `Metastatic.to_string/1` joins statements with `"; "`, so
+  the previous line-count heuristic never fired.
+- `.propwise.exs` errors are surfaced through an `:on_error` callback instead of
+  being silently swallowed, which previously produced a confusing empty report.
+- Removed the `marcli` dependency (and its Rust NIF) entirely: the text report
+  is rendered by a small built-in ANSI renderer, so the project builds without a
+  Rust toolchain and without downloading precompiled NIFs.
+
+### Changed
+- `find_inverse_pairs/1` uses a `{module, name}` index instead of an O(n² · 9)
+  nested loop, and de-duplicates results.
+- `PatternDetector` uses a detector registry, so adding a pattern is a one-line
+  change. Detectors receive a single context struct instead of three arguments.
+- `body_string` is computed lazily — most detectors never need it.
+- `Candidate.rank` is now an enforced struct key; every candidate is ranked.
+- `mix bundle_deps` only bundles runtime dependencies, so dev tooling (credo,
+  dialyxir, ex_doc, excoveralls) can no longer leak into a published archive.
+- `--format` values are validated; an unknown value no longer leaks an atom.
+- `Parser` uses `String.to_existing_atom/1` so analysing untrusted source cannot
+  exhaust the atom table.
+- The reporter warns explicitly when no `.ex` files were analysed.
+- CI matrix now covers Elixir 1.18 (the declared minimum) through 1.20, uses
+  `actions/*@v4`, and keys the PLT cache per toolchain.
+
+### Tests
+- `test/prop_wise/law_table_test.exs` — table integrity, the `Map.merge`
+  acceptance case, tolerance and edge cases.
+- `test/prop_wise/law_suggestion_test.exs` — law → property rendering, arity
+  awareness, library syntax.
+- `test/prop_wise/baseline_test.exs` — snapshot/parse/diff/apply and the
+  `--baseline` CLI integration including exit codes.
+- `test/prop_wise/command_line_test.exs` — the CLI surface (arg parsing, file
+  lists, exit codes, `--output`) was previously untested.
+- `test/prop_wise/regression_test.exs` — one test per issue found in the audit.
+- `test/prop_wise/property_test.exs` — StreamData properties for
+  `find_inverse_pairs/1` and `detect_patterns/1`.
+
+### Removed
+- Stray `dllb_3010.sock` and `erl_crash.dump` from the repository root.
+
+## [0.4.2] - 2026-04-01
+### Added
 - Ranked findings: every candidate now gets a 1-based rank, and inverse-pair members
   (e.g. `encode`/`decode`) always rank above non-pair candidates
 - `--show-all` CLI flag (and `:show_all` library option) to display every finding

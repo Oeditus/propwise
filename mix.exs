@@ -13,9 +13,14 @@ defmodule Mix.Tasks.BundleDeps do
     target_ebin = Path.join([lib_path, app_name, "ebin"])
 
     if File.dir?(lib_path) and File.dir?(target_ebin) do
+      # Only bundle *runtime* dependencies: dev/test tooling (credo, dialyxir,
+      # ex_doc, excoveralls) must never end up inside the published archive.
+      runtime_deps = runtime_dep_names()
+
       lib_path
       |> File.ls!()
       |> Enum.reject(&(&1 == app_name))
+      |> Enum.filter(&(&1 in runtime_deps))
       |> Enum.each(fn dep_app ->
         dep_ebin = Path.join([lib_path, dep_app, "ebin"])
 
@@ -35,6 +40,24 @@ defmodule Mix.Tasks.BundleDeps do
 
     {:ok, []}
   end
+
+  defp runtime_dep_names do
+    Mix.Project.config()
+    |> Keyword.get(:deps, [])
+    |> Enum.filter(fn dep ->
+      opts = dep_opts(dep)
+      Keyword.get(opts, :runtime, true) != false and Keyword.get(opts, :only) in [nil, :prod]
+    end)
+    |> Enum.map(fn dep -> dep |> elem(0) |> Atom.to_string() end)
+  end
+
+  defp dep_opts(dep) when is_tuple(dep),
+    do: dep |> Tuple.to_list() |> List.last() |> normalize_opts()
+
+  defp dep_opts(_), do: []
+
+  defp normalize_opts(opts) when is_list(opts), do: opts
+  defp normalize_opts(_), do: []
 end
 
 defmodule PropWise.MixProject do
@@ -86,13 +109,15 @@ defmodule PropWise.MixProject do
   defp deps do
     [
       {:metastatic, "~> 0.29"},
-      {:marcli, "~> 0.4"},
       # Runtime dependency needed for JSON output
       {:jason, "~> 1.4"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:excoveralls, "~> 0.18", only: :test, runtime: false}
+      {:excoveralls, "~> 0.18", only: :test, runtime: false},
+      # Dogfooding: PropWise recommends property-based tests, so it should have
+      # some itself.
+      {:stream_data, "~> 1.1", only: :test}
     ]
   end
 

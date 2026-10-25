@@ -99,10 +99,15 @@ defmodule PropWise.Parser do
     apps_path = Path.join(path, "apps")
 
     if not File.dir?(lib_path) and File.dir?(apps_path) do
-      apps_path
-      |> File.ls!()
-      |> Enum.map(&Path.join("apps", Path.join(&1, "lib")))
-      |> Enum.filter(&File.dir?(Path.join(path, &1)))
+      case File.ls(apps_path) do
+        {:ok, entries} ->
+          entries
+          |> Enum.map(&Path.join("apps", Path.join(&1, "lib")))
+          |> Enum.filter(&File.dir?(Path.join(path, &1)))
+
+        {:error, _} ->
+          ["lib"]
+      end
     else
       ["lib"]
     end
@@ -154,7 +159,14 @@ defmodule PropWise.Parser do
     }
   end
 
-  defp parse_name(s) when is_binary(s), do: String.to_atom(s)
+  # Avoid atom-table exhaustion when analysing untrusted source: only reuse
+  # atoms that already exist in the VM, otherwise keep the name as a string.
+  defp parse_name(s) when is_binary(s) do
+    String.to_existing_atom(s)
+  rescue
+    ArgumentError -> s
+  end
+
   defp parse_name(a) when is_atom(a), do: a
   defp parse_name(_), do: :unknown
 

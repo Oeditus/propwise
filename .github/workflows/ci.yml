@@ -12,22 +12,30 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        elixir: ['1.19', '1.20']
-        otp: ['28', '29']
+        include:
+          # Lowest supported version (mix.exs declares `elixir: "~> 1.18"`).
+          - elixir: '1.18'
+            otp: '27'
+          - elixir: '1.19'
+            otp: '28'
+          - elixir: '1.20'
+            otp: '29'
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{matrix.elixir}}
           otp-version: ${{matrix.otp}}
       - name: Restore dependencies cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
+          key: ${{ runner.os }}-mix-${{matrix.otp}}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-${{matrix.otp}}-
       - name: Install dependencies
         run: mix deps.get
+      - name: Check formatting
+        run: mix format --check-formatted
       - name: Run tests
         run: mix test
 
@@ -35,23 +43,25 @@ jobs:
     name: Static Analysis
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: '1.19'
           otp-version: '28'
       - name: Restore dependencies cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
+          key: ${{ runner.os }}-mix-28-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-28-
       - name: Restore PLT cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
+          # Keyed on the OTP/Elixir version too: a PLT built by one toolchain
+          # must never be reused by another.
           path: priv/plts
-          key: ${{ runner.os }}-plt-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-plt-
+          key: ${{ runner.os }}-plt-1.19-28-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-plt-1.19-28-
       - name: Install dependencies
         run: mix deps.get
       - name: Run quality checks
@@ -76,17 +86,17 @@ jobs:
     name: Test Coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: '1.19'
           otp-version: '28'
       - name: Restore dependencies cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
+          key: ${{ runner.os }}-mix-28-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-28-
       - name: Install dependencies
         run: mix deps.get
       - name: Run tests with coverage

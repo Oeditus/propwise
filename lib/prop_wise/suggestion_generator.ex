@@ -4,25 +4,52 @@ defmodule PropWise.SuggestionGenerator do
 
   Uses a template-based approach where library-specific syntax (stream_data vs PropEr)
   is parameterized, and function name/arity are used to generate accurate call sites.
+
+  ## Law-driven suggestions
+
+  When `PropWise.LawTable` has inferred concrete laws for a function (e.g.
+  `Enum.reverse` implies `:involution`), those laws are rendered as real
+  properties — `reverse(reverse(x)) == x` — instead of the generic
+  "deterministic output" fallback. Pattern-based suggestions are still emitted
+  for anything the law table does not cover.
   """
+
+  alias PropWise.LawTable
 
   @doc """
   Generates testing suggestions based on detected patterns and library.
-  """
-  @spec generate([PropWise.Candidate.pattern()], PropWise.FunctionInfo.t() | map(), atom()) ::
-          [String.t()]
-  def generate(patterns, function_info, library) do
-    ctx = build_context(function_info, library)
 
-    patterns
-    |> Enum.flat_map(fn {type, _reason} ->
-      generate_for_pattern(type, ctx)
-    end)
+  `laws` is an optional list of `t:PropWise.LawTable.law/0` values; when given,
+  law-specific properties are emitted first.
+  """
+  @spec generate(
+          [PropWise.Candidate.pattern()],
+          PropWise.FunctionInfo.t() | map(),
+          atom(),
+          [LawTable.law()],
+          String.t() | nil
+        ) :: [String.t()]
+  def generate(patterns, function_info, library, laws \\ [], identity \\ nil) do
+    ctx = Map.put(build_context(function_info, library), :identity, identity)
+
+    law_suggestions =
+      laws
+      |> Enum.flat_map(&generate_for_law(&1, ctx))
+
+    pattern_suggestions =
+      patterns
+      |> Enum.flat_map(fn {type, _reason} ->
+        generate_for_pattern(type, ctx)
+      end)
+
+    (law_suggestions ++ pattern_suggestions)
     |> Enum.uniq()
   end
 
   defp build_context(function_info, library) do
-    module_name = function_info.module |> String.split(".") |> List.last()
+    # Use the *full* module name so generated calls resolve without an alias.
+    # `MyApp.Deep.Nested.Encoder` must not be truncated to `Encoder`.
+    module_name = function_info.module
     func_name = function_info.name
     arity = function_info.arity
 
@@ -43,8 +70,13 @@ defmodule PropWise.SuggestionGenerator do
 
   defp format_call(module, func, args) do
     "#{module}.#{func}(#{Enum.join(args, ", ")})"
-  rescue
-    Protocol.UndefinedError -> "???"
+  end
+
+  # Build a call site structurally (never by string-patching), replacing the
+  # first argument with `first_arg` and keeping any remaining arguments.
+  defp call_with_first(ctx, first_arg) do
+    [_ | rest] = arg_names(ctx.arity)
+    format_call(ctx.module, ctx.func, [first_arg | rest])
   end
 
   # --- Library-specific syntax helpers ---
@@ -80,6 +112,224 @@ defmodule PropWise.SuggestionGenerator do
   defp gen(:proper, :number), do: "oneof([integer(), float()])"
   defp gen(:proper, :term), do: "term()"
 
+  # --- Law-driven suggestions ------------------------------------------------
+  #
+  # Each law renders a real property using the function's actual call site.
+  # A law that does not make sense for the arity (e.g. associativity on a
+  # 1-arity function) contributes nothing.
+
+  defp generate_for_law(:involution, ctx) do
+    lib = ctx.library
+
+    [
+      property("involution: f(f(x)) == x", lib, gen_binding(lib, "input", gen(lib, :term)), """
+      #{assert_stmt(lib, "#{ctx.call} |> then(&#{ctx.module}.#{ctx.func}(&1)) == input")}
+      """)
+    ]
+  end
+
+  # Idempotence has a clean meaning for a unary function (`f(f(x)) == f(x)`).
+  # For a binary operation the meaningful form is `f(a, a) == a` — exactly what
+  # `Map.merge(m, m) == m` expresses.
+  defp generate_for_law(:idempotent, %{arity: 1} = ctx) do
+    lib = ctx.library
+
+    [
+      property(
+        "idempotence: f(f(x)) == f(x)",
+        lib,
+        gen_binding(lib, "input", gen(lib, :term)),
+        """
+        once = #{ctx.call}
+        twice = #{ctx.module}.#{ctx.func}(once)
+        #{assert_stmt(lib, "twice == once")}
+        """
+      )
+    ]
+  end
+
+  defp generate_for_law(:idempotent, %{arity: 2} = ctx) do
+    lib = ctx.library
+    m = ctx.module
+    f = ctx.func
+
+    [
+      property(
+        "idempotence: f(a, a) == a",
+        lib,
+        gen_binding(lib, "a", gen(lib, :term)),
+        """
+        #{assert_stmt(lib, "#{m}.#{f}(a, a) == a")}
+        """
+      )
+    ]
+  end
+
+  defp generate_for_law(:idempotent, ctx) do
+    # Higher arities: feed the result back in as the first argument.
+    lib = ctx.library
+    bindings = arity_bindings(ctx)
+    [_ | rest] = arg_names(ctx.arity)
+
+    [
+      property(
+        "idempotence: applying twice equals applying once",
+        lib,
+        bindings,
+        """
+        once = #{ctx.call}
+        twice = #{ctx.module}.#{ctx.func}(#{Enum.join(["once" | rest], ", ")})
+        #{assert_stmt(lib, "twice == once")}
+        """
+      )
+    ]
+  end
+
+  defp generate_for_law(:associative, %{arity: 2} = ctx) do
+    lib = ctx.library
+    m = ctx.module
+    f = ctx.func
+
+    bindings =
+      gen_bindings(lib, [{"a", gen(lib, :term)}, {"b", gen(lib, :term)}, {"c", gen(lib, :term)}])
+
+    [
+      property("associativity: f(f(a, b), c) == f(a, f(b, c))", lib, bindings, """
+      #{assert_stmt(lib, "#{m}.#{f}(#{m}.#{f}(a, b), c) == #{m}.#{f}(a, #{m}.#{f}(b, c))")}
+      """)
+    ]
+  end
+
+  defp generate_for_law(:commutative, %{arity: 2} = ctx) do
+    lib = ctx.library
+    m = ctx.module
+    f = ctx.func
+
+    bindings = gen_bindings(lib, [{"a", gen(lib, :term)}, {"b", gen(lib, :term)}])
+
+    [
+      property("commutativity: f(a, b) == f(b, a)", lib, bindings, """
+      # NOTE: Delete this property if the operation is not commutative.
+      #{assert_stmt(lib, "#{m}.#{f}(a, b) == #{m}.#{f}(b, a)")}
+      """)
+    ]
+  end
+
+  defp generate_for_law(:identity, %{arity: 2} = ctx) do
+    lib = ctx.library
+    m = ctx.module
+    f = ctx.func
+    identity = identity_for(ctx)
+
+    [
+      property(
+        "identity element: f(a, identity) == a",
+        lib,
+        gen_binding(lib, "a", gen(lib, :term)),
+        """
+        identity = #{identity}
+        #{assert_stmt(lib, "#{m}.#{f}(a, identity) == a")}
+        """
+      )
+    ]
+  end
+
+  defp generate_for_law(:permutation, ctx) do
+    lib = ctx.library
+
+    [
+      property(
+        "output is a permutation of the input",
+        lib,
+        gen_binding(lib, "list", gen(lib, :list)),
+        """
+        result = #{call_with_first(ctx, "list")}
+        # TODO: Replace with the invariant that holds for your function.
+        #{assert_stmt(lib, "Enum.sort(result) == Enum.sort(list)")}
+        """
+      )
+    ]
+  end
+
+  defp generate_for_law(:length_preserving, ctx) do
+    lib = ctx.library
+
+    [
+      property("length is preserved", lib, gen_binding(lib, "list", gen(lib, :list)), """
+      result = #{call_with_first(ctx, "list")}
+      #{assert_stmt(lib, "length(result) == length(list)")}
+      """)
+    ]
+  end
+
+  defp generate_for_law(:monotonic, ctx) do
+    lib = ctx.library
+
+    [
+      property(
+        "monotonicity: a <= b implies f(a) <= f(b)",
+        lib,
+        gen_binding(lib, "n", gen(lib, :number)),
+        """
+        # TODO: Replace `n` with a generator appropriate for your domain.
+        a = n
+        b = n + 1
+        #{assert_stmt(lib, "#{call_with_first(ctx, "a")} <= #{call_with_first(ctx, "b")}")}
+        """
+      )
+    ]
+  end
+
+  defp generate_for_law(:bounded, ctx) do
+    lib = ctx.library
+
+    [
+      property("result stays within bounds", lib, gen_binding(lib, "n", gen(lib, :number)), """
+      result = #{call_with_first(ctx, "n")}
+      # TODO: Replace with the real bound for your function.
+      #{assert_stmt(lib, "is_number(result)")}
+      """)
+    ]
+  end
+
+  defp generate_for_law(:total, ctx) do
+    lib = ctx.library
+    bindings = arity_bindings(ctx)
+
+    [
+      property("never raises for generated input", lib, bindings, """
+      # A crash here is a real bug: the function should be total over its domain.
+      _ = #{ctx.call}
+      """)
+    ]
+  end
+
+  defp generate_for_law(:round_trip, ctx) do
+    generate_for_pattern(:encoder_decoder, ctx)
+  end
+
+  defp generate_for_law(:deterministic, ctx) do
+    lib = ctx.library
+    bindings = arity_bindings(ctx)
+
+    [
+      property("deterministic output", lib, bindings, """
+      #{assert_stmt(lib, "#{ctx.call} == #{ctx.call}")}
+      """)
+    ]
+  end
+
+  defp generate_for_law(_law, _ctx), do: []
+
+  # Concrete identity when the law table knows one for a call in the body,
+  # otherwise a TODO placeholder.
+  defp identity_for(ctx) do
+    case Map.get(ctx, :identity) do
+      nil -> "nil # TODO: replace with the identity value"
+      value -> value
+    end
+  end
+
   # Generate term() bindings for the function's actual arity
   defp arity_bindings(ctx) do
     bindings =
@@ -100,7 +350,7 @@ defmodule PropWise.SuggestionGenerator do
 
     [
       property("idempotency or invariant on collection", lib, list_binding, """
-      result = #{ctx.call |> replace_first_arg("list")}
+      result = #{call_with_first(ctx, "list")}
       # TODO: Replace with the invariant that holds for your function.
       # Examples: length is preserved, elements are preserved, order is maintained.
       #{assert_stmt(lib, "is_list(result)")}
@@ -192,6 +442,7 @@ defmodule PropWise.SuggestionGenerator do
       property("#{f}/#{inverse} round-trip", lib, gen_binding(lib, "data", gen(lib, :term)), """
       # TODO: Replace term() with a generator that produces valid input for #{f}.
       encoded = #{m}.#{f}(data)
+      # TODO: Adjust the expected return shape if #{inverse} does not return {:ok, value}.
       #{assert_stmt(lib, "#{m}.#{inverse}(encoded) == {:ok, data}")}
       """),
       property(
@@ -231,7 +482,7 @@ defmodule PropWise.SuggestionGenerator do
     lib = ctx.library
     bindings = gen_binding(lib, "n", gen(lib, :number))
 
-    call_with_n = ctx.call |> replace_first_arg("n")
+    call_with_n = call_with_first(ctx, "n")
 
     [
       property("returns numeric result", lib, bindings, """
@@ -274,11 +525,6 @@ defmodule PropWise.SuggestionGenerator do
     _ -> String.trim(snippet)
   end
 
-  defp replace_first_arg(call, new_arg) do
-    # Replace the first argument in a call string like "Module.func(input)" -> "Module.func(n)"
-    Regex.replace(~r/\(([^,\)]+)/, call, "(#{new_arg}", global: false)
-  end
-
   @inverse_pairs %{
     "encode" => "decode",
     "decode" => "encode",
@@ -288,7 +534,7 @@ defmodule PropWise.SuggestionGenerator do
     "unpack" => "pack",
     "marshal" => "unmarshal",
     "unmarshal" => "marshal",
-    "compress" => "compress",
+    "compress" => "decompress",
     "decompress" => "compress",
     "encrypt" => "decrypt",
     "decrypt" => "encrypt"

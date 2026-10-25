@@ -13,7 +13,12 @@
 
   # Property-based testing library to use for suggestions
   # Options: :stream_data (default) or :proper
-  library: :stream_data
+  library: :stream_data,
+
+  # Modules whose functions are known to be pure. A function that calls into one
+  # of these modules is classified :pure instead of :unknown.
+  # Default: []
+  pure_modules: []
 
   # You can add multiple directories:
   # analyze_paths: ["lib", "src", "apps/my_app/lib"]

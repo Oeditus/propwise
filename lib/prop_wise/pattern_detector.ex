@@ -3,6 +3,18 @@ defmodule PropWise.PatternDetector do
   Detects patterns in function MetaASTs that indicate good property-based testing candidates.
   """
 
+  @inverse_name_pairs [
+    {"encode", "decode"},
+    {"serialize", "deserialize"},
+    {"parse", "generate"},
+    {"parse", "format"},
+    {"compress", "decompress"},
+    {"encrypt", "decrypt"},
+    {"to_", "from_"},
+    {"pack", "unpack"},
+    {"marshal", "unmarshal"}
+  ]
+
   alias PropWise.PurityAnalyzer
 
   @doc """
@@ -10,84 +22,66 @@ defmodule PropWise.PatternDetector do
   """
   @spec detect_patterns(PropWise.FunctionInfo.t() | map()) :: [PropWise.Candidate.pattern()]
   def detect_patterns(function_info) do
-    meta_ast = PurityAnalyzer.ensure_meta_ast(function_info.body)
-    body_string = to_body_string(meta_ast)
+    ctx = build_ctx(function_info)
 
-    []
-    |> maybe_add_pattern(
-      :collection_operation,
-      &detect_collection_operation/3,
-      function_info,
-      meta_ast,
-      body_string
-    )
-    |> maybe_add_pattern(
-      :transformation,
-      &detect_transformation/3,
-      function_info,
-      meta_ast,
-      body_string
-    )
-    |> maybe_add_pattern(
-      :validation,
-      &detect_validation/3,
-      function_info,
-      meta_ast,
-      body_string
-    )
-    |> maybe_add_pattern(
-      :algebraic,
-      &detect_algebraic_structure/3,
-      function_info,
-      meta_ast,
-      body_string
-    )
-    |> maybe_add_pattern(
-      :encoder_decoder,
-      &detect_encoder_decoder/3,
-      function_info,
-      meta_ast,
-      body_string
-    )
-    |> maybe_add_pattern(
-      :parser,
-      &detect_parser/3,
-      function_info,
-      meta_ast,
-      body_string
-    )
-    |> maybe_add_pattern(
-      :numeric,
-      &detect_numeric_algorithm/3,
-      function_info,
-      meta_ast,
-      body_string
-    )
+    for {type, detector} <- detectors(),
+        reason = detector.(ctx),
+        reason != nil do
+      {type, reason}
+    end
   end
+
+  # Detector registry: adding a new pattern is a one-line change here.
+  # Local anonymous captures (not `apply/3`) so private functions are reachable.
+  defp detectors do
+    [
+      collection_operation: &detect_collection_operation/1,
+      transformation: &detect_transformation/1,
+      validation: &detect_validation/1,
+      algebraic: &detect_algebraic_structure/1,
+      encoder_decoder: &detect_encoder_decoder/1,
+      parser: &detect_parser/1,
+      numeric: &detect_numeric_algorithm/1
+    ]
+  end
+
+  defp build_ctx(function_info) do
+    meta_ast = PurityAnalyzer.ensure_meta_ast(function_info.body)
+
+    %{
+      info: function_info,
+      meta_ast: meta_ast,
+      # Lazily computed on first use: stringifying every body eagerly is the hot
+      # path on large codebases and most detectors never need it.
+      body_string: nil
+    }
+  end
+
+  defp body_string(%{body_string: nil} = ctx) do
+    to_body_string(ctx.meta_ast)
+  end
+
+  defp body_string(%{body_string: string}), do: string
 
   @doc """
   Finds pairs of functions that appear to be inverses of each other.
+
+  Uses an index keyed on `{module, name}` so the search is O(n) rather than
+  O(n² · |patterns|). Cross-module pairs are *not* reported; only functions
+  defined in the same module are considered inverses.
   """
   @spec find_inverse_pairs([PropWise.FunctionInfo.t() | map()]) :: [map()]
   def find_inverse_pairs(functions) do
-    inverse_name_pairs = [
-      {"encode", "decode"},
-      {"serialize", "deserialize"},
-      {"parse", "generate"},
-      {"parse", "format"},
-      {"compress", "decompress"},
-      {"encrypt", "decrypt"},
-      {"to_", "from_"},
-      {"pack", "unpack"},
-      {"marshal", "unmarshal"}
-    ]
+    index =
+      Enum.reduce(functions, %{}, fn f, acc ->
+        Map.update(acc, {f.module, safe_to_string(f.name)}, [f], &[f | &1])
+      end)
 
-    for {forward, inverse} <- inverse_name_pairs,
+    for {forward, inverse} <- @inverse_name_pairs,
         f1 <- functions,
-        f2 <- functions,
-        f1.module == f2.module,
+        f2 <- lookup(index, f1.module, inverse_name(f1.name, forward, inverse)),
         f1.name != f2.name,
-        name_matches?(f1.name, forward) and name_matches?(f2.name, inverse) do
+        name_matches?(f1.name, forward) do
       %{
         type: :inverse_pair,
         forward: {f1.module, f1.name, f1.arity},
@@ -95,17 +89,44 @@ defmodule PropWise.PatternDetector do
         suggestion: "Test round-trip property: #{f2.name}(#{f1.name}(x)) == x"
       }
     end
+    |> Enum.uniq_by(fn pair -> {pair.forward, pair.inverse} end)
   end
 
-  defp maybe_add_pattern(patterns, type, detector_fn, function_info, meta_ast, body_string) do
-    case detector_fn.(function_info, meta_ast, body_string) do
-      nil -> patterns
-      reason -> [{type, reason} | patterns]
+  defp lookup(index, module, name), do: Map.get(index, {module, name}, [])
+
+  # Produce the candidate inverse name for a function name and a pattern pair.
+  # Prefix patterns ("to_" / "from_") swap the prefix; segment patterns swap the
+  # matching `_`-separated segment.
+  defp inverse_name(name, forward, inverse) do
+    name_str = safe_to_string(name)
+
+    if String.ends_with?(forward, "_") or String.ends_with?(inverse, "_") do
+      source = String.trim_trailing(forward, "_")
+      target = String.trim_trailing(inverse, "_")
+
+      cond do
+        String.starts_with?(name_str, forward) ->
+          target <> "_" <> String.replace_prefix(name_str, forward, "")
+
+        String.starts_with?(name_str, inverse) ->
+          source <> "_" <> String.replace_prefix(name_str, inverse, "")
+
+        true ->
+          name_str
+      end
+    else
+      segments = String.split(name_str, "_")
+
+      Enum.map_join(segments, "_", fn
+        ^forward -> inverse
+        ^inverse -> forward
+        other -> other
+      end)
     end
   end
 
   # Detect collection operations (map, filter, sort, group)
-  defp detect_collection_operation(_info, meta_ast, body_string) do
+  defp detect_collection_operation(%{meta_ast: meta_ast} = ctx) do
     has_collection_node =
       Metastatic.postwalker(meta_ast)
       |> Enum.any?(fn
@@ -123,26 +144,26 @@ defmodule PropWise.PatternDetector do
           false
       end)
 
-    patterns = [
-      {~r/Enum\.(map|filter|sort|group|reduce|flat_map|chunk)/,
-       "Uses Enum collection operations"},
-      {~r/Stream\.(map|filter|chunk|take|drop)/, "Uses Stream operations"},
-      {~r/\|> Enum\./, "Pipeline with Enum operations"},
-      {~r/for .+ <- .+/, "List comprehension"}
-    ]
-
     if has_collection_node do
       "Uses Enum collection operations"
     else
+      patterns = [
+        {~r/Enum\.(map|filter|sort|group|reduce|flat_map|chunk)/,
+         "Uses Enum collection operations"},
+        {~r/Stream\.(map|filter|chunk|take|drop)/, "Uses Stream operations"},
+        {~r/\|> Enum\./, "Pipeline with Enum operations"},
+        {~r/for .+ <- .+/, "List comprehension"}
+      ]
+
       Enum.find_value(patterns, fn {regex, reason} ->
-        if Regex.match?(regex, body_string), do: reason
+        if Regex.match?(regex, body_string(ctx)), do: reason
       end)
     end
   end
 
   # Detect data transformations via struct/map manipulation.
   # Deliberately excludes bare pipelines and `with` blocks which are too common.
-  defp detect_transformation(_function_info, meta_ast, _body_string) do
+  defp detect_transformation(%{meta_ast: meta_ast}) do
     cond do
       has_struct_manipulation?(meta_ast) ->
         "Struct transformation"
@@ -157,7 +178,7 @@ defmodule PropWise.PatternDetector do
 
   # Detect validation functions based on Elixir naming conventions.
   # Relies on the strong convention of `?` suffix for predicates.
-  defp detect_validation(function_info, _meta_ast, _body_string) do
+  defp detect_validation(%{info: function_info}) do
     name = safe_to_string(function_info.name)
 
     cond do
@@ -179,7 +200,7 @@ defmodule PropWise.PatternDetector do
   end
 
   # Detect algebraic structures (operations with associativity, commutativity, etc.)
-  defp detect_algebraic_structure(function_info, _meta_ast, _body_string) do
+  defp detect_algebraic_structure(%{info: function_info}) do
     name = safe_to_string(function_info.name)
     segments = String.split(name, "_")
 
@@ -191,7 +212,7 @@ defmodule PropWise.PatternDetector do
   end
 
   # Detect encoder/decoder functions
-  defp detect_encoder_decoder(function_info, _meta_ast, _body_string) do
+  defp detect_encoder_decoder(%{info: function_info}) do
     name = safe_to_string(function_info.name)
     segments = String.split(name, "_")
 
@@ -209,35 +230,43 @@ defmodule PropWise.PatternDetector do
     end
   end
 
-  # Detect parser functions
-  defp detect_parser(function_info, meta_ast, body_string) do
+  # Detect parser functions.
+  #
+  # `Regex.match?/2` is deliberately excluded: it is a predicate, not a parser.
+  # A `?`-suffixed function is a validation concern, never a parser, so we bail
+  # out early for those to avoid double-labelling predicates as parsers.
+  defp detect_parser(%{info: function_info, meta_ast: meta_ast} = ctx) do
     name = safe_to_string(function_info.name)
     segments = String.split(name, "_")
 
-    has_regex =
-      Metastatic.postwalker(meta_ast)
-      |> Enum.any?(fn
-        {:function_call, meta, _} ->
-          meta[:name] in ["Regex.run", "Regex.scan", "Regex.match?"]
+    if String.ends_with?(name, "?") do
+      nil
+    else
+      has_regex =
+        Metastatic.postwalker(meta_ast)
+        |> Enum.any?(fn
+          {:function_call, meta, _} ->
+            meta[:name] in ["Regex.run", "Regex.scan"]
 
-        _ ->
-          false
-      end)
+          _ ->
+            false
+        end)
 
-    cond do
-      "parse" in segments ->
-        "Parser function"
+      cond do
+        "parse" in segments ->
+          "Parser function"
 
-      has_regex or String.contains?(body_string, ["Regex.run", "Regex.scan", "Regex.match?"]) ->
-        "String parsing"
+        has_regex or String.contains?(body_string(ctx), ["Regex.run", "Regex.scan"]) ->
+          "String parsing"
 
-      true ->
-        nil
+        true ->
+          nil
+      end
     end
   end
 
   # Detect numeric algorithms via AST analysis instead of regex on stringified code.
-  defp detect_numeric_algorithm(_function_info, meta_ast, _body_string) do
+  defp detect_numeric_algorithm(%{meta_ast: meta_ast}) do
     cond do
       has_math_module_calls?(meta_ast) ->
         "Math module operations"
